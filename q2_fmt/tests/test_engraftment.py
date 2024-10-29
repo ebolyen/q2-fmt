@@ -17,20 +17,18 @@ from qiime2 import Metadata
 from q2_fmt._util import (_rename_features, _check_column_missing,
                           _check_reference_column, _check_for_time_column,
                           _filter_associated_reference, _check_subject_column,
-                          _simulate_uniform_distro, _peds_sim_stats,
+                          _peds_sim_stats,
                           _get_to_baseline_ref, _drop_incomplete_subjects,
                           _create_used_references, _median,
                           _check_rarefaction_parameters,
-                          _subsample)
+                          _subsample, _create_mismatched_pairs,
+                          _mask_recipient, _create_duplicated_tables,
+                          _per_subject_stats, _global_stats,
+                          _check_column_type,
+                          _drop_incomplete_timepoints,)
 from q2_fmt._engraftment import group_timepoints
 from q2_fmt._peds import (_compute_peds, sample_peds,
-                          _check_column_type,
-                          _drop_incomplete_timepoints, feature_peds,
-                          peds_simulation, _create_mismatched_pairs,
-                          _create_sim_masking,
-                          _mask_recipient, _create_duplicated_recip_table,
-                          _per_subject_stats, _global_stats,
-                          sample_pprs)
+                          feature_peds, peds_simulation, sample_pprs)
 
 
 class TestBase(TestPluginBase):
@@ -1622,6 +1620,9 @@ class TestHeatmapHelpers(TestBase):
 
 class TestSim(TestBase):
     def test_high_donor_overlap(self):
+        # This tests has a very small chance of failing by random chance if
+        # out of the 9 random samples, the present feature doesnt subsample
+        # at least one time but that is pretty unlikely.
         metadata_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
@@ -1638,22 +1639,26 @@ class TestSim(TestBase):
         table_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
-            'Feature1': [1, 0, 0, 1, 0, 0],
-            'Feature2': [0, 1, 0, 0, 1, 0],
-            'Feature3': [0, 0, 1, 0, 0, 1]}).set_index('id')
+            'Feature1': [10, 0, 0, 10, 0, 0],
+            'Feature2': [0, 10, 0, 0, 10, 0],
+            'Feature3': [0, 0, 10, 0, 0, 10]}).set_index('id')
         metadata = Metadata(metadata_df)
 
-        stats, _ = peds_simulation(metadata=metadata,
-                                   table=table_df,
-                                   time_column="group",
-                                   reference_column="Ref",
-                                   subject_column="subject",
-                                   num_iterations=999)
+        _, stats, _ = peds_simulation(metadata=metadata,
+                                      table=table_df,
+                                      time_column="group",
+                                      reference_column="Ref",
+                                      subject_column="subject",
+                                      num_resamples=999,
+                                      sampling_depth=9)
         real_median = np.median(stats["A:measure"].values)
         fake_median = np.median(stats["B:measure"].values)
         self.assertGreater(real_median, fake_median)
 
     def test_low_donor_overlap(self):
+        # This tests has a very small chance of failing by random chance if
+        # out of the 9 random samples, the present feature doesnt subsample
+        # at least one time but that is pretty unlikely.
         metadata_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
@@ -1670,17 +1675,18 @@ class TestSim(TestBase):
         table_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
-            'Feature1': [1, 0, 0, 0, 1, 1],
-            'Feature2': [0, 1, 0, 1, 0, 1],
-            'Feature3': [0, 0, 1, 1, 1, 0]}).set_index('id')
+            'Feature1': [10, 0, 0, 0, 10, 10],
+            'Feature2': [0, 10, 0, 10, 0, 10],
+            'Feature3': [0, 0, 10, 10, 10, 0]}).set_index('id')
         metadata = Metadata(metadata_df)
 
-        stats, _ = peds_simulation(metadata=metadata,
-                                   table=table_df,
-                                   time_column="group",
-                                   reference_column="Ref",
-                                   subject_column="subject",
-                                   num_iterations=999)
+        _, stats, _ = peds_simulation(metadata=metadata,
+                                      table=table_df,
+                                      time_column="group",
+                                      reference_column="Ref",
+                                      subject_column="subject",
+                                      num_resamples=999,
+                                      sampling_depth=9)
 
         real_median = np.median(stats["A:measure"].values)
         fake_median = np.median(stats["B:measure"].values)
@@ -1711,7 +1717,8 @@ class TestSim(TestBase):
                             time_column="group",
                             reference_column="Ref",
                             subject_column="subject",
-                            num_iterations=999)
+                            num_resamples=999,
+                            sampling_depth=1)
 
     def test_create_mismatched_pairs(self):
         metadata_df = pd.DataFrame({
@@ -1771,80 +1778,6 @@ class TestSim(TestBase):
         exp_r_mask = [[0, 0, 0], [0, 1, 0], [0, 0, 0]]
         np.testing.assert_array_equal(recip_mask, exp_r_mask)
 
-    def test_simulate_uniform_distro(self):
-        # Note: This tests has a VERY small chance to have intermit failures
-        # if by random chance 1, 2, or 3 are not selected by random.choice.
-        mismatch_peds = [1, 2, 3]
-
-        iterations = 999
-
-        mismatchpairs_df = _simulate_uniform_distro(mismatch_peds,
-                                                    iterations)
-        self.assertIn(1, mismatchpairs_df)
-        self.assertIn(2, mismatchpairs_df)
-        self.assertIn(3, mismatchpairs_df)
-        self.assertEquals(mismatchpairs_df.size, iterations)
-
-    def test_one_iter_simulate_uniform_distro(self):
-        mismatch_peds = [0, 0, 0, 0, 0, 0]
-
-        iterations = 1
-
-        mismatchpairs_df = _simulate_uniform_distro(mismatch_peds,
-                                                    iterations)
-        self.assertEquals(mismatchpairs_df.size, iterations)
-
-    def test_create_sim_masking(self):
-
-        mismatched_df = pd.DataFrame({'id': ["sample1", "sample1",
-                                             "sample2", "sample2",
-                                             "sample3", "sample3"],
-                                      "Ref": ["donor2", "donor3",
-                                              "donor1", "donor3",
-                                              "donor1", "donor2"]}
-                                     ).set_index('id')
-
-        donor_df = pd.DataFrame({
-            'id': ['donor1', 'donor2', 'donor3'],
-            'Feature1': [1, 0, 0],
-            'Feature2': [0, 1, 0],
-            'Feature3': [0, 0, 1]}).set_index('id')
-
-        exp_mask = [[0, 1, 0],
-                    [0, 0, 1],
-                    [1, 0, 0],
-                    [0, 0, 1],
-                    [1, 0, 0],
-                    [0, 1, 0]]
-
-        donor_mask = _create_sim_masking(mismatched_df, donor_df,
-                                         reference_column='Ref')
-        np.testing.assert_array_equal(donor_mask, exp_mask)
-
-    def test_create_one_donor_sim_masking(self):
-
-        mismatched_df = pd.DataFrame({'id': ["sample1",
-                                             "sample2",
-                                             "sample3"],
-                                      "Ref": ["donor2",
-                                              "donor2",
-                                              "donor2"]}
-                                     ).set_index('id')
-
-        donor_df = pd.DataFrame({
-            'id': ['donor2'],
-            'Feature1': [1],
-            'Feature2': [0],
-            'Feature3': [0]}).set_index('id')
-
-        exp_mask = [[1, 0, 0],
-                    [1, 0, 0],
-                    [1, 0, 0]]
-
-        donor_mask = _create_sim_masking(mismatched_df, donor_df,
-                                         reference_column='Ref')
-        np.testing.assert_array_equal(donor_mask, exp_mask)
-
     def test_create_duplicated_table(self):
         recip_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3'],
@@ -1852,6 +1785,12 @@ class TestSim(TestBase):
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]}).set_index('id')
 
+        donor_df = pd.DataFrame({
+            'id': ['donor1', 'donor2', 'donor3'],
+            'Feature1': [1, 0, 0],
+            'Feature2': [0, 1, 0],
+            'Feature3': [0, 0, 1]}).set_index('id')
+
         mismatched_df = pd.DataFrame({'id': ["sample1", "sample1",
                                              "sample2", "sample2",
                                              "sample3", "sample3"],
@@ -1860,18 +1799,28 @@ class TestSim(TestBase):
                                               "donor1", "donor2"]}
                                      ).set_index('id')
 
-        duplicated_recip_table = _create_duplicated_recip_table(mismatched_df,
-                                                                recip_df)
+        duplicated_recip_table, duplicated_donor_table =\
+            _create_duplicated_tables(mismatched_df, recip_df=recip_df,
+                                      donor_df=donor_df)
 
         exp_d_r_table = pd.DataFrame({
-            'id': ['sample1', 'sample1', 'sample2', 'sample2',
-                   'sample3', 'sample3'],
             'Feature1': [1, 1, 0, 0, 0, 0],
             'Feature2': [0, 0, 1, 1, 0, 0],
-            'Feature3': [0, 0, 0, 0, 1, 1]}).set_index('id')
+            'Feature3': [0, 0, 0, 0, 1, 1]},
+            index=['sample1..1', 'sample1..2', 'sample2..3', 'sample2..4',
+                   'sample3..5', 'sample3..6'])
+
+        exp_d_d_table = pd.DataFrame({
+            'Feature1': [0, 0, 1, 0, 1, 0],
+            'Feature2': [1, 0, 0, 0, 0, 1],
+            'Feature3': [0, 1, 0, 1, 0, 0]},
+            index=["donor2..1", "donor3..2", "donor1..3", "donor3..4",
+                   "donor1..5", "donor2..6"])
 
         pd.testing.assert_frame_equal(duplicated_recip_table,
                                       exp_d_r_table)
+        pd.testing.assert_frame_equal(duplicated_donor_table,
+                                      exp_d_d_table)
 
     def test_create_no_duplicated_table(self):
         recip_df = pd.DataFrame({
@@ -1880,6 +1829,12 @@ class TestSim(TestBase):
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]}).set_index('id')
 
+        donor_df = pd.DataFrame({
+            'id': ['donor2'],
+            'Feature1': [0],
+            'Feature2': [1],
+            'Feature3': [0]}).set_index('id')
+
         mismatched_df = pd.DataFrame({'id': ["sample1",
                                              "sample2",
                                              "sample3"],
@@ -1887,21 +1842,23 @@ class TestSim(TestBase):
                                               "donor2",
                                               "donor2"]}
                                      ).set_index('id')
-
-        duplicated_recip_table = _create_duplicated_recip_table(mismatched_df,
-                                                                recip_df)
-        pd.testing.assert_frame_equal(duplicated_recip_table,
-                                      recip_df)
+        exp_d_r_df = pd.DataFrame({
+            'Feature1': [1, 0, 0],
+            'Feature2': [0, 1, 0],
+            'Feature3': [0, 0, 1]},
+            index=['sample1..1', 'sample2..2', 'sample3..3'])
+        duplicated_recip_table, __ =\
+            _create_duplicated_tables(mismatched_df, recip_df, donor_df)
+        pd.testing.assert_frame_equal(exp_d_r_df,
+                                      duplicated_recip_table)
 
     def test_per_subject_stats_labels(self):
-        mismatched_peds = [0, 0, 0, 0]
+        mismatched_peds = pd.Series([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         actual_temp = pd.Series(data=[1, 1, 1, 1],
                                 index=["sample1", "sample2", "sample3",
                                        "sample4"])
-        iterations = 10
 
-        p_s_stats = _per_subject_stats(mismatched_peds,
-                                       actual_temp, iterations)
+        p_s_stats = _per_subject_stats(mismatched_peds, actual_temp)
 
         exp_column_names = ["A:group", "A:n", "A:measure",
                             "B:group", "B:n", "B:measure", "n",
@@ -1910,14 +1867,13 @@ class TestSim(TestBase):
                                       exp_column_names)
 
     def test_per_subject_stats(self):
-        mismatched_peds = [0, 0, 0, 0]
+        mismatched_peds = pd.Series([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         actual_temp = pd.Series(data=[1, 1, 1, 1],
                                 index=["sample1", "sample2", "sample3",
                                        "sample4"])
-        iterations = 10
 
         p_s_stats = _per_subject_stats(mismatched_peds,
-                                       actual_temp, iterations)
+                                       actual_temp)
 
         exp_test_stats = pd.Series([10, 10, 10, 10])
 
@@ -1925,15 +1881,12 @@ class TestSim(TestBase):
                                       exp_test_stats.values)
 
     def test_per_subject_stats_q(self):
-        mismatched_peds = [0, 0, 0, 0]
+        mismatched_peds = pd.Series([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         actual_temp = pd.Series(data=[1, 0, 1, 0],
                                 index=["sample1", "sample2", "sample3",
                                        "sample4"])
-        iterations = 10
-
         p_s_stats = _per_subject_stats(mismatched_peds,
-                                       actual_temp, iterations)
-
+                                       actual_temp)
         exp_p = ([1/11, 11/11, 1/11, 11/11])
 
         exp_q = false_discovery_control(ps=exp_p, method='bh')

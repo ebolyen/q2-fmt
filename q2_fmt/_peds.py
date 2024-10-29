@@ -28,10 +28,11 @@ from q2_fmt._util import (_rename_features,
                           _check_column_type,
                           _create_recipient_table,
                           _create_masking, _create_mismatched_pairs,
-                          _create_duplicated_recip_table, _create_sim_masking,
+                          _create_duplicated_tables,
                           _per_subject_stats, _global_stats, _mask_recipient,
                           _get_to_baseline_ref, _create_used_references,
-                          _median, _subsample, _check_rarefaction_parameters)
+                          _median, _subsample, _check_rarefaction_parameters,
+                          _simulate_mismatched_pairs)
 
 from q2_stats.util import json_replace
 from q2_stats.plots.raincloud import _make_stats
@@ -462,7 +463,6 @@ def sample_pprs(table: pd.DataFrame, metadata: qiime2.Metadata,
     peds_df['transfered_baseline_features'] = median_numerator_series
     peds_df['total_baseline_features'] = median_denominator_series
     peds_df = peds_df.reset_index()
-    print(peds_df)
 
     peds_df['id'].attrs.update({
         'title': metadata_df.index.name,
@@ -497,9 +497,11 @@ def sample_pprs(table: pd.DataFrame, metadata: qiime2.Metadata,
 
 def peds_simulation(table: pd.DataFrame, metadata: qiime2.Metadata,
                     time_column: str, reference_column: str,
-                    subject_column: str,
+                    subject_column: str, sampling_depth: int,
                     filter_missing_references: bool = False,
-                    num_iterations: int = 999) -> (pd.DataFrame, pd.DataFrame):
+                    peds_rarefaction: bool = True,
+                    num_resamples: int = 999,
+                    ) -> (pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
     ids_with_data = table.index
     metadata = metadata.filter_ids(ids_to_keep=ids_with_data)
@@ -530,17 +532,47 @@ def peds_simulation(table: pd.DataFrame, metadata: qiime2.Metadata,
                              " and needs more than one recipient"
                              " to successfully shuffle.")
 
+    if not peds_rarefaction:
+        num_resamples = 1
+
     peds = sample_peds(
            table=table, metadata=metadata,
            time_column=time_column,
            reference_column=reference_column,
            subject_column=subject_column,
-           filter_missing_references=filter_missing_references
-           ).set_index("id")
-    actual_peds = peds["measure"]
+           filter_missing_references=filter_missing_references,
+           num_resamples=num_resamples,
+           sampling_depth=sampling_depth
+           ).set_index('id')
+
+    actual_peds = peds['measure']
+    # resetting attrs because they get wipe with set_index
+    peds['measure'].attrs.update({
+        'title': "Sample PEDS",
+        'description': 'Proportional Engraftment of Donor Strains'
+    })
+    peds['group'].attrs.update({
+        'title': time_column,
+        'description': 'Time'
+    })
+    peds['subject'].attrs.update({
+        'title': subject_column,
+        'description': 'Subject IDs linking samples across time'
+    })
+    peds['transfered_donor_features'].attrs.update({
+        'title': "Transfered Reference Features",
+        'description': '...'
+    })
+    peds['total_donor_features'].attrs.update({
+        'title': "Total Reference Features",
+        'description': '...'
+    })
+    peds['donor'].attrs.update({
+        'title': reference_column,
+        'description': 'Donor'
+    })
 
     # Mismatch simulation:
-    table = table > 0
     recip_df = _create_recipient_table(used_references, metadata_df, table)
     donor_df = table[table.index.isin(used_references)]
     mismatched_df = \
@@ -548,10 +580,31 @@ def peds_simulation(table: pd.DataFrame, metadata: qiime2.Metadata,
                                  metadata_df,
                                  used_references,
                                  reference_column)
-    duplicated_recip_table = _create_duplicated_recip_table(mismatched_df,
-                                                            recip_df)
-    donor_mask = _create_sim_masking(mismatched_df, donor_df, reference_column)
-    recip_mask = _mask_recipient(donor_mask, duplicated_recip_table)
+    simulated_mismatched_df = _simulate_mismatched_pairs(mismatched_df,
+                                                         num_resamples)
+
+    simulated_recip_table, simulated_donor_table =\
+        _create_duplicated_tables(simulated_mismatched_df, recip_df,
+                                  donor_df)
+    # concating or recip and donor tables so column number stays the same after
+    # subsampling
+    simulated_table = pd.concat([simulated_recip_table,
+                                 simulated_donor_table])
+    rarefied_simulated_table = _subsample(table=simulated_table,
+                                          sampling_depth=sampling_depth)
+
+    rarefied_recip_simulated_table =\
+        rarefied_simulated_table.filter(items=simulated_recip_table.index,
+                                        axis=0)
+
+    rarefied_donor_simulated_table =\
+        rarefied_simulated_table.filter(items=simulated_donor_table.index,
+                                        axis=0)
+
+    rarefied_donor_simulated_table = rarefied_donor_simulated_table > 0
+    rarefied_recip_simulated_table = rarefied_recip_simulated_table > 0
+    donor_mask = rarefied_donor_simulated_table.to_numpy()
+    recip_mask = _mask_recipient(donor_mask, rarefied_recip_simulated_table)
     # Numerator for PEDS Calc. (Number of Donor features in the Recipient)
     num_engrafted_donor_features = np.sum(recip_mask.values, axis=1)
     # Denominator for PEDS Calc. (Number of unique features in the Donor)
@@ -562,6 +615,7 @@ def peds_simulation(table: pd.DataFrame, metadata: qiime2.Metadata,
         warnings.simplefilter("ignore")
         mismatched_peds = num_engrafted_donor_features/num_donor_features
     per_sub_stats = _per_subject_stats(mismatched_peds,
-                                       actual_peds, num_iterations)
+                                       actual_peds)
     global_stats = _global_stats(per_sub_stats['p-value'])
-    return per_sub_stats, global_stats
+
+    return peds, per_sub_stats, global_stats

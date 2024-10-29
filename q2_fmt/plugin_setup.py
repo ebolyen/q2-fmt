@@ -394,8 +394,13 @@ plugin.methods.register_function(
                 'reference_column': Str,
                 'subject_column': T_subject,
                 'filter_missing_references': Bool,
-                'num_iterations': Int % Range(99, None)},
-    outputs=[('per_subject_stats', StatsTable[Pairwise]),
+                'num_resamples': Int % Range(99, None),
+                'peds_rarefaction': Bool,
+                'sampling_depth': Int % Range(1, None),
+                },
+    outputs=[('actual_sample_peds',
+              Dist1D[Ordered, Matched] % Properties("peds")),
+             ('per_subject_stats', StatsTable[Pairwise]),
              ('global_stats', StatsTable[Pairwise])],
     parameter_descriptions={
         'metadata': metadata,
@@ -403,10 +408,19 @@ plugin.methods.register_function(
         'reference_column': reference_column,
         'subject_column': subject_column,
         'filter_missing_references': filter_missing_references,
-        'num_iterations': 'The number of iterations to run the Monte Carlo'
-                          ' simulation on'
+        'num_resamples': 'The number of iterations to run the Monte Carlo'
+                         ' simulation on and the number of rarefactions to'
+                         ' preform',
+        'sampling_depth': sampling_depth,
+        'peds_rarefaction': 'If False, the feature-table for the actual peds'
+                            ' will be rarefied intstead of using rarefaction.'
+                            ' This will make it faster to run this method but'
+                            ' the actual values may be slightly less'
+                            ' comparable to the simulated values which will'
+                            ' be undergo rarefaction `num_resamples` of times',
     },
     output_descriptions={
+        'actual_sample_peds': peds_dists,
         'per_subject_stats': per_subject_stats,
         'global_stats': global_stats
     },

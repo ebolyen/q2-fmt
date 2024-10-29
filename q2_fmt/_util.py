@@ -10,7 +10,6 @@ from collections import Counter
 
 from scipy.stats import false_discovery_control, combine_pvalues
 
-import random
 import itertools
 import biom
 
@@ -1026,7 +1025,7 @@ def _create_mismatched_pairs(recip_df, metadata, used_references,
     return mismatched_df
 
 
-def _create_duplicated_recip_table(mismatched_df, recip_df):
+def _create_duplicated_tables(simulated_mismatched_df, recip_df, donor_df):
     """Creates a recipient feature table that is the same dimensions as
     the mismatched_df
 
@@ -1036,18 +1035,23 @@ def _create_duplicated_recip_table(mismatched_df, recip_df):
 
     Parameters
     ----------
-    mismatched_df: pd.DataFrame
+    simulated_mismatched_df: pd.DataFrame
         A Dataframe that contains recipient samples as the index and mismatched
-        donors as the values. A recipient sample will appear as many times as
-        there are mismatched donors to pair with.
+        donors as the values. This has then been simulated by randomly sampling
+        the pairs `num_resamples`.
     recip_df: pd.DataFrame
         A feature table of FMT recipients.
+    recip_df: pd.DataFrame
+        A feature table of FMT donors.
 
     Returns
     -------
-    duplicated_table: pd.DataFrame
+    simulated_recipient_table: pd.DataFrame
         A recipent feature table where feature information is duplicated so
-        that recipient is in the same diminsion as mismatched_df
+        that the recipient table is in the same diminsion as mismatched_df
+    simulated_donor_table: pd.DataFrame
+        A donor feature table where feature information is duplicated so
+        that the donor table is in the same diminsion as mismatched_df
 
     Examples
     --------
@@ -1063,21 +1067,42 @@ def _create_duplicated_recip_table(mismatched_df, recip_df):
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]}).set_index('id')
 
-    >>> _create_duplicated_recip_table(mismatched_df, recip_df)
+    >>> donor_df = pd.DataFrame({
+            'id': ['donor1', 'donor2', 'donor3'],
+            'Feature1': [1, 0, 0],
+            'Feature2': [0, 1, 0],
+            'Feature3': [0, 0, 1]}).set_index('id')
 
-    pd.DataFrame({
-            'id': ["sample1", "sample1", "sample2", "sample2",
-                   "sample3", "sample3"],
+    >>> _create_duplicated_recip_table(mismatched_df, recip_df, donor_df)
+
+    recip_df = pd.DataFrame({
+            'id': ["sample1..1", "sample1..2", "sample2..3", "sample2..4",
+                   "sample3..4", "sample3..6"],
+            'Feature1': [1, 1, 0, 0, 0, 0],
+            'Feature2': [0, 0, 1, 1, 0, 0],
+            'Feature3': [0, 0, 0, 0, 1, 1]}).set_index('id')
+
+        pd.DataFrame({
+            'id': ["donor2..1", "donor3..2", "donor1..3", "donor3..4",
+                   "donor1..5", "donor3..6"],
             'Feature1': [1, 1, 0, 0, 0, 0],
             'Feature2': [0, 0, 1, 1, 0, 0],
             'Feature3': [0, 0, 0, 0, 1, 1]}).set_index('id')
     """
-    duplicated_table = \
-        mismatched_df.merge(recip_df, left_index=True, right_index=True,
-                            how='left').drop(mismatched_df.columns, axis=1)
-    return duplicated_table
+    simulate_recip_df = pd.DataFrame([], columns=recip_df.columns)
+    simulate_donor_df = pd.DataFrame([], columns=donor_df.columns)
+    count = 1
+    for recip, donor_row in simulated_mismatched_df.iterrows():
+        donor = donor_row.values[0]
+        simulate_recip_df.loc[
+            (recip + '..' + str(count))] = recip_df.loc[recip]
+        simulate_donor_df.loc[
+            (donor + '..' + str(count))] = donor_df.loc[donor]
+        count += 1
+    return simulate_recip_df, simulate_donor_df
 
 
+'''
 def _create_sim_masking(mismatched_df, donor_df, reference_column):
     """Create a donor mask to mask recipient features that aren't in the donor.
 
@@ -1125,49 +1150,54 @@ def _create_sim_masking(mismatched_df, donor_df, reference_column):
             [1, 0, 0],
             [0, 1, 0]]
     """
-    donors = mismatched_df[reference_column]
-    donor_index_masking = []
-    for donor in donors:
-        donor_index_masking.append(donor_df.index.get_loc(donor))
-    donor_df_np = donor_df.to_numpy()
-    donor_mask = donor_df_np[donor_index_masking]
+    donor_mask = donor_df.to_numpy()
     return donor_mask
+'''
 
 
-def _simulate_uniform_distro(mismatched_peds, k):
-    """Randomly samples the mismatched PEDS values.
+def _simulate_mismatched_pairs(mismatched_df, num_resamples):
+    """Randomly samples the mismatched_df
 
-    Creates a uniform distribution of mismatched PEDS values by randomly
-    sampling `num_iterations` times with replacement.
+    Creates a uniform distribution of mismatched pairs by randomly
+    sampling `num_resamples` times with replacement.
 
     Parameters
     ----------
-    mismatched_peds: list
-        A list that contains all mismatched PEDS values.
-    k: int
+    mismatched_df: pd.DataFrame
+        A Dataframe that contains recipient samples as the index and mismatched
+        donors as the values. A recipient sample will appear as many times as
+        there are mismatched donors to pair with.
+    num_resamples: int
         Number of iterations(`k`) to run simulations (Number of times to
-        randomly sample mismatched_peds)
+        randomly sample mismatched_df)
 
     Returns
     -------
-    peds_iters: pd.Series
-        a pd.Series with all num_iterations of mismatched PEDS Values. This
-        will later be compared to an actual PEDS value.
+    simulated_mismatched_df: pd.Series
+        a pd.DataFrame with all num_resamples of mismatched pairs. This
+        will later be our uniform distro for comparison.
 
     Examples
     --------
-    >>> mismatched_peds = [0, 0, 0,0 ]
-    >>> num_iterations = 10
+    >>> mismatched_df = pd.DataFrame({
+                'id': ["sample1", "sample1", "sample2", "sample2",
+                       "sample3", "sample3"],
+                "Ref": ["donor2", "donor3", "donor1", "donor3",
+                        "donor1", "donor2"]).set_index('id')
+    >>> num_resamples = 10
 
-    >>> _simulate_uniform_distro(mismatched_peds, num_iterations)
-
-    pd.Series(data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-              index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    >>> _simulated_mismatched_pairs(mismatched_df, num_resamples)
+        mismatched_df = pd.DataFrame({
+                'id': ["sample1", "sample1", "sample2", "sample2", "sample3",
+                       "sample3", "sample1", "sample2", "sample3","sample1"],
+                "Ref": ["donor2", "donor3", "donor1", "donor3", "donor1",
+                        "donor2", "donor2" "donor3", "donor1","donor3"]
+                        ).set_index('id')
     """
-    peds_iters = random.choices(mismatched_peds, k=k)
-    # Tranforming to series for easy series math in _per_subject_stats()
-    peds_iters = pd.Series(peds_iters)
-    return peds_iters
+
+    simulated_mismatched_df = mismatched_df.sample(n=num_resamples, axis=0,
+                                                   replace=True)
+    return simulated_mismatched_df
 
 
 def _peds_sim_stats(value, peds_iters, num_iterations):
@@ -1221,8 +1251,7 @@ def _peds_sim_stats(value, peds_iters, num_iterations):
     return count_gte, count_less, per_subject_p
 
 
-def _per_subject_stats(mismatched_peds, actual_peds,
-                       num_iterations):
+def _per_subject_stats(mismatched_peds, actual_peds):
     """Creates per subject PEDS stats
 
     Creates per subject PEDS stats by sampling mismatch PEDS values 'iteration'
@@ -1231,14 +1260,11 @@ def _per_subject_stats(mismatched_peds, actual_peds,
 
     Parameters
     ----------
-    mismatched_peds: list
+    mismatched_peds: pd.Series
         A list that contains all mismatched PEDS values.
     actual_peds: pd.Series
         A Series containing Sample IDs as the index and actual PEDS values for
         the sample as the value.
-    num_iterations: int
-        Number of num_iterations to run simulations (Number of times to
-        randomly sample mismatched_peds)
 
     Returns
     -------
@@ -1249,11 +1275,10 @@ def _per_subject_stats(mismatched_peds, actual_peds,
 
     Examples
     --------
-    >>> mismatched_peds = [0, 0, 0, 0]
+    >>> mismatched_peds = pd.Series([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     >>> actual_peds = pd.Series([data = [1, 1, 1, 1],
                                  index = ["sample1", "sample2",
                                           "sample3", "sample4"]])
-    >>> num_iterations = 10
 
     >>> _per_subject_stats(mismatched_peds, actual_peds,
                        num_iterations):
@@ -1273,11 +1298,11 @@ def _per_subject_stats(mismatched_peds, actual_peds,
     peds_iters_means = []
     count_less_list = []
     per_subject_p_list = []
+    mean_mismatched_value = mismatched_peds.mean()
     for value in actual_peds:
-        peds_iters = _simulate_uniform_distro(mismatched_peds, num_iterations)
-        peds_iters_means.append(peds_iters.mean())
-        _, count_less, per_subject_p = _peds_sim_stats(value, peds_iters,
-                                                       num_iterations)
+        peds_iters_means.append(mismatched_peds.mean())
+        _, count_less, per_subject_p = _peds_sim_stats(value, mismatched_peds,
+                                                       mismatched_peds.size)
         count_less_list.append(count_less)
         per_subject_p_list.append(per_subject_p)
 
@@ -1287,8 +1312,8 @@ def _per_subject_stats(mismatched_peds, actual_peds,
                                   'A:measure': actual_peds.values,
                                   'B:group': "shuffled recipients",
                                   'B:n': len(mismatched_peds),
-                                  'B:measure': peds_iters_means,
-                                  'n': num_iterations,
+                                  'B:measure': mean_mismatched_value,
+                                  'n': mismatched_peds.size,
                                   'test-statistic': count_less_list,
                                   'p-value': per_subject_p_list,
                                   'q-value': per_subject_q})

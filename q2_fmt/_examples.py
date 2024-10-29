@@ -247,16 +247,19 @@ def simulation_peds_method(use):
     md = use.init_metadata('md', peds_md_factory)
     table = use.init_artifact('table', feature_table_factory)
 
-    peds_stats, global_stats = use.action(
+    actual_sample_peds, peds_stats, global_stats = use.action(
         use.UsageAction('fmt', 'peds_simulation'),
         use.UsageInputs(
             table=table,
             metadata=md,
             time_column='time_point',
             reference_column='Donor',
-            subject_column='SubjectID'
+            subject_column='SubjectID',
+            num_resamples=99,
+            sampling_depth=400
         ),
         use.UsageOutputNames(
+            actual_sample_peds='actual_sample_peds',
             per_subject_stats='per_subject_stats',
             global_stats='global_stats'
         )
