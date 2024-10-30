@@ -1082,12 +1082,12 @@ def _create_duplicated_tables(simulated_mismatched_df, recip_df, donor_df):
             'Feature2': [0, 0, 1, 1, 0, 0],
             'Feature3': [0, 0, 0, 0, 1, 1]}).set_index('id')
 
-        pd.DataFrame({
+    donor_df = pd.DataFrame({
             'id': ["donor2..1", "donor3..2", "donor1..3", "donor3..4",
-                   "donor1..5", "donor3..6"],
-            'Feature1': [1, 1, 0, 0, 0, 0],
-            'Feature2': [0, 0, 1, 1, 0, 0],
-            'Feature3': [0, 0, 0, 0, 1, 1]}).set_index('id')
+                   "donor1..5", "donor2..6"],
+            'Feature1': [0, 0, 1, 0, 1, 0],
+            'Feature2': [1, 0, 0, 0, 0, 1],
+            'Feature3': [0, 1, 0, 1, 0, 0]}).set_index('id')
     """
     simulate_recip_df = pd.DataFrame([], columns=recip_df.columns)
     simulate_donor_df = pd.DataFrame([], columns=donor_df.columns)
