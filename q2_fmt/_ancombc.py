@@ -35,7 +35,7 @@ def detect_donor_indicators(ctx, table, reference_column, time_column,
     dataloaf, = ancombc(table=filtered_table, metadata=Metadata(ids_to_keep),
                        reference_levels=["type::donor"], formula='type')
     results += dataloaf
-    viz = da_barplot(data=dataloaf[0], significance_threshold=0.05,
+    viz = da_barplot(data=dataloaf, significance_threshold=0.05,
                      level_delimiter=level_delimiter)
     results += viz
     return tuple(results)
