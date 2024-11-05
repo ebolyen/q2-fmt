@@ -281,3 +281,27 @@ def pprs_method(use):
 
     pprs_group_dists.assert_output_type("Dist1D[Ordered, Matched] %"
                                         " Properties('pprs')")
+
+
+def detect_donor_indicators_method(use):
+    md = use.init_metadata('md', peds_md_factory)
+    table = use.init_artifact('table', feature_table_factory)
+
+    differentials, da_barplot = use.action(
+        use.UsageAction('fmt', 'detect_donor_indicators'),
+        use.UsageInputs(
+            table=table,
+            metadata=md,
+            time_column='time_point',
+            reference_column='Donor',
+            baseline_timepoint='1',
+        ),
+        use.UsageOutputNames(
+            differentials='differentials',
+            da_barplot='da_barplot'
+        )
+
+    )
+
+    differentials.assert_output_type("FeatureData[DifferentialAbundance]")
+    da_barplot.assert_output_type(" Visualization")

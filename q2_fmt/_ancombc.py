@@ -20,10 +20,10 @@ def detect_donor_indicators(ctx, table, reference_column, time_column,
     da_barplot = ctx.get_action('composition', 'da_barplot')
     results = []
 
-```suggestion
     _check_for_time_column(metadata.to_dataframe(),
                            time_column)
     _check_reference_column(metadata.to_dataframe(),
+                            reference_column)
 
     ids_to_keep = get_baseline_donor_md(metadata=metadata,
                                         reference_column=reference_column,
@@ -33,19 +33,17 @@ def detect_donor_indicators(ctx, table, reference_column, time_column,
     filtered_table, = filter(table=table,
                              metadata=Metadata(ids_to_keep))
     dataloaf, = ancombc(table=filtered_table, metadata=Metadata(ids_to_keep),
-                       reference_levels=["type::donor"], formula='type')
-    results += dataloaf
-    viz = da_barplot(data=dataloaf, significance_threshold=0.05,
-                     level_delimiter=level_delimiter)
-    results += viz
+                        reference_levels=["type::donor"], formula='type')
+    results.append(dataloaf)
+    viz, = da_barplot(data=dataloaf, significance_threshold=0.05,
+                      level_delimiter=level_delimiter)
+    results.append(viz)
     return tuple(results)
 
 
 def get_baseline_donor_md(metadata, reference_column, time_column,
                           baseline_timepoint):
-    """Checks if column is in the metdata
-    Checks that column is in the metdata and creates helpful error messages.
-    Parameters
+    """Creates a metadata for differentiating baseline and donor
     ----------
     metadata: pd.Dataframe
         Study `Metadata`
@@ -75,7 +73,12 @@ def get_baseline_donor_md(metadata, reference_column, time_column,
     ids_to_keep =\
         pd.Series(index=md_df[reference_column].dropna().unique(),
                   data='donor', name='type')
-    ids_to_keep = pd.concat([ids_to_keep,  pd.Series(index=md_df[md_df[time_column] == float(baseline_timepoint)].index.to_list(), data='baseline', name=type)])
+    ids_to_keep =\
+        pd.concat([ids_to_keep,
+                   pd.Series(index=md_df[md_df[time_column] ==
+                                         float(baseline_timepoint)
+                                         ].index.to_list(),
+                             data='baseline', name=type)])
 
     ids_to_keep = ids_to_keep.to_frame()
     ids_to_keep.index.name = 'id'

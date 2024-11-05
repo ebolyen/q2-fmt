@@ -447,7 +447,12 @@ plugin.pipelines.register_function(
                                           ' differentials.'},
     name='Detect Donor Indicators Features',
     description='Runs a pipeline to indentify differetial features between the'
-                ' donor and the baseline recipient'
+                ' donor and the baseline recipient. This is done by filtering'
+                ' the feature table to donor and baseline timepoints and'
+                ' running ancombc comparing those groups',
+    examples={
+        'detect_methods': ex.detect_donor_indicators_method
+    }
 )
 
 importlib.import_module('q2_fmt._transformer')
