@@ -20,10 +20,10 @@ def detect_donor_indicators(ctx, table, reference_column, time_column,
     da_barplot = ctx.get_action('composition', 'da_barplot')
     results = []
 
-    _, _ = _check_for_time_column(metadata.to_dataframe(),
-                                  time_column)
-    _ = _check_reference_column(metadata.to_dataframe(),
-                                reference_column)
+```suggestion
+    _check_for_time_column(metadata.to_dataframe(),
+                           time_column)
+    _check_reference_column(metadata.to_dataframe(),
 
     ids_to_keep = get_baseline_donor_md(metadata=metadata,
                                         reference_column=reference_column,
