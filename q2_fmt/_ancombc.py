@@ -75,11 +75,8 @@ def get_baseline_donor_md(metadata, reference_column, time_column,
     ids_to_keep =\
         pd.Series(index=md_df[reference_column].dropna().unique(),
                   data='donor', name='type')
-    for tp, tp_df in md_df.groupby(by=time_column):
-        if tp == float(baseline_timepoint):
-            ids_to_keep = pd.concat([ids_to_keep,
-                                     pd.Series(index=tp_df.index.to_list(),
-                                               data='baseline', name=type)])
+    ids_to_keep = pd.concat([ids_to_keep,  pd.Series(index=md_df[md_df[time_column] == float(baseline_timepoint)].index.to_list(), data='baseline', name=type)])
+
     ids_to_keep = ids_to_keep.to_frame()
     ids_to_keep.index.name = 'id'
     ids_to_keep = ids_to_keep.rename({0: "type"}, axis=1)
