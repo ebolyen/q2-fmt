@@ -1747,14 +1747,12 @@ class TestSim(TestBase):
         mismatched_df = _create_mismatched_pairs(recip_df, metadata_df,
                                                  used_references,
                                                  reference_column='Ref')
-        exp_mismatched_df = pd.DataFrame({'id': ["sample1", "sample1",
-                                                 "sample2", "sample2",
-                                                 "sample3", "sample3"],
-                                          "Ref": ["donor2", "donor3",
-                                                  "donor1", "donor3",
-                                                  "donor1", "donor2"]}
-                                         ).set_index('id')
-        pd.testing.assert_frame_equal(mismatched_df, exp_mismatched_df)
+        exp_mismatched_df = pd.Series(["donor2", "donor3", "donor1", "donor3",
+                                       "donor1", "donor2"],
+                                      index=["sample1", "sample1",
+                                             "sample2", "sample2",
+                                             "sample3", "sample3"])
+        pd.testing.assert_series_equal(mismatched_df, exp_mismatched_df)
 
     def test_mask_recipient(self):
         donor_mask = np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]])
@@ -1791,31 +1789,29 @@ class TestSim(TestBase):
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]}).set_index('id')
 
-        mismatched_df = pd.DataFrame({'id': ["sample1", "sample1",
+        mismatched_series = pd.Series(["donor2", "donor3",
+                                       "donor1", "donor3",
+                                       "donor1", "donor2"],
+                                      index=["sample1", "sample1",
                                              "sample2", "sample2",
-                                             "sample3", "sample3"],
-                                      "Ref": ["donor2", "donor3",
-                                              "donor1", "donor3",
-                                              "donor1", "donor2"]}
-                                     ).set_index('id')
-
+                                             "sample3", "sample3"])
         duplicated_recip_table, duplicated_donor_table =\
-            _create_duplicated_tables(mismatched_df, recip_df=recip_df,
+            _create_duplicated_tables(mismatched_series, recip_df=recip_df,
                                       donor_df=donor_df)
 
         exp_d_r_table = pd.DataFrame({
             'Feature1': [1, 1, 0, 0, 0, 0],
             'Feature2': [0, 0, 1, 1, 0, 0],
             'Feature3': [0, 0, 0, 0, 1, 1]},
-            index=['sample1..1', 'sample1..2', 'sample2..3', 'sample2..4',
-                   'sample3..5', 'sample3..6'])
+            index=['sample1..0', 'sample1..1', 'sample2..2', 'sample2..3',
+                   'sample3..4', 'sample3..5'])
 
         exp_d_d_table = pd.DataFrame({
             'Feature1': [0, 0, 1, 0, 1, 0],
             'Feature2': [1, 0, 0, 0, 0, 1],
             'Feature3': [0, 1, 0, 1, 0, 0]},
-            index=["donor2..1", "donor3..2", "donor1..3", "donor3..4",
-                   "donor1..5", "donor2..6"])
+            index=["donor2..0", "donor3..1", "donor1..2", "donor3..3",
+                   "donor1..4", "donor2..5"])
 
         pd.testing.assert_frame_equal(duplicated_recip_table,
                                       exp_d_r_table)
@@ -1835,18 +1831,13 @@ class TestSim(TestBase):
             'Feature2': [1],
             'Feature3': [0]}).set_index('id')
 
-        mismatched_df = pd.DataFrame({'id': ["sample1",
-                                             "sample2",
-                                             "sample3"],
-                                      "Ref": ["donor2",
-                                              "donor2",
-                                              "donor2"]}
-                                     ).set_index('id')
+        mismatched_df = pd.Series(["donor2", "donor2", "donor2"],
+                                  index=["sample1", "sample2", "sample3"])
         exp_d_r_df = pd.DataFrame({
             'Feature1': [1, 0, 0],
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]},
-            index=['sample1..1', 'sample2..2', 'sample3..3'])
+            index=['sample1..0', 'sample2..1', 'sample3..2'])
         duplicated_recip_table, __ =\
             _create_duplicated_tables(mismatched_df, recip_df, donor_df)
         pd.testing.assert_frame_equal(exp_d_r_df,

@@ -848,36 +848,24 @@ def _drop_incomplete_timepoints(data, drop_incomplete_timepoints):
     Examples
     --------
     >>> data = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3',
-                   'donor1', 'donor2'],
-            'measure': [.4, .5, 1,
-                        np.nan, np.nan],
-            'subject': ['sub1', 'sub1', 'sub2',
-                        np.nan, np.nan],
-            'group': [1, 2, 1,
-                      np.nan, np.nan],
-            'transfered_donor_features': [4, 5, 10,
-                                          np.nan, np.nan],
-            'total_donor_features': [10, 10, 10,
-                                     np.nan, np.nan]}).set_index('id')
+            'id': ['sample1', 'sample2', 'sample3'],
+            'measure': [.4, .5, 1],
+            'subject': ['sub1', 'sub1', 'sub2'],
+            'group': [1, 2, 1],
+            'transfered_donor_features': [4, 5, 10],
+            'total_donor_features': [10, 10, 10]}).set_index('id')
 
     >>> drop_incomplete_timepoints = ['2']
 
     >>> _drop_incomplete_timepoints(data, drop_incomplete_timepoints)
 
         pd.DataFrame({
-            'id': ['sample1', 'sample3',
-                   'donor1', 'donor2'],
-            'measure': [.4, 1,
-                        np.nan, np.nan],
-            'subject': ['sub1', 'sub2',
-                        np.nan, np.nan],
-            'group': [1, 1,
-                      np.nan, np.nan],
-            'transfered_donor_features': [4, 10,
-                                          np.nan, np.nan],
-            'total_donor_features': [10, 10,
-                                     np.nan, np.nan]}).set_index('id')
+            'id': ['sample1', 'sample3'],
+            'measure': [.4, 1],
+            'subject': ['sub1', 'sub2'],
+            'group': [1, 1],
+            'transfered_donor_features': [4, 10],
+            'total_donor_features': [10, 10]}).set_index('id')
     """
     if drop_incomplete_timepoints:
         for time in drop_incomplete_timepoints:
@@ -908,35 +896,23 @@ def _drop_incomplete_subjects(data, drop_incomplete_subjects):
     Examples
     --------
     >>> data = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3',
-                   'donor1', 'donor2'],
-            'measure': [.4, .5, 1,
-                        np.nan, np.nan],
-            'subject': ['sub1', 'sub1', 'sub2',
-                        np.nan, np.nan],
-            'group': [1, 2, 1,
-                      np.nan, np.nan],
-            'transfered_donor_features': [4, 5, 10,
-                                          np.nan, np.nan],
-            'total_donor_features': [10, 10, 10,
-                                     np.nan, np.nan]}).set_index('id')
+            'id': ['sample1', 'sample2', 'sample3'],
+            'measure': [.4, .5, 1],
+            'subject': ['sub1', 'sub1', 'sub2'],
+            'group': [1, 2, 1],
+            'transfered_donor_features': [4, 5, 10],
+            'total_donor_features': [10, 10, 10]}).set_index('id')
 
     >>> drop_incomplete_subjects = True
 
     >>> _drop_incomplete_subjects(data, drop_incomplete_timepoints)
         pd.DataFrame({
-            'id': ['sample1', 'sample2',
-                   'donor1', 'donor2'],
+            'id': ['sample1', 'sample2'],
             'measure': [.4, .5,
-                        np.nan, np.nan],
-            'subject': ['sub1', 'sub1', 'sub2',
-                        np.nan, np.nan],
-            'group': [1, 2,
-                      np.nan, np.nan],
-            'transfered_donor_features': [4, 5,
-                                          np.nan, np.nan],
-            'total_donor_features': [10, 10,
-                                     np.nan, np.nan]}).set_index('id')
+            'subject': ['sub1', 'sub1', 'sub2'],
+            'group': [1, 2],
+            'transfered_donor_features': [4, 5],
+            'total_donor_features': [10, 10]}).set_index('id')
 
 
     """
@@ -954,10 +930,10 @@ def _drop_incomplete_subjects(data, drop_incomplete_subjects):
 # peds_simulation helper functions
 def _create_mismatched_pairs(recip_df, metadata, used_references,
                              reference_column):
-    """Creates a Dataframe of all the incorrect Donor-Recipient pairs
+    """Creates a Series of all the incorrect Donor-Recipient pairs
 
     Creates a list of tuples of all donor-recipient pairs then filters out
-    any real donor-recipient pairs. The result is a Dataframe that includes
+    any real donor-recipient pairs. The result is a Series that includes
     only mismatched donor-recipient pairs.
 
     Parameters
@@ -974,8 +950,8 @@ def _create_mismatched_pairs(recip_df, metadata, used_references,
 
     Returns
     -------
-    mismatched_df: pd.DataFrame
-        A DataFrame containing all mismatched pairs of donors and recipients.
+    mismatched_series: pd.Series
+        A Series containing all mismatched pairs of donors and recipients.
 
     Examples
     --------
@@ -1006,7 +982,7 @@ def _create_mismatched_pairs(recip_df, metadata, used_references,
 
     >>> _create_mismatched_pairs(recip_df, metadata_df, used_references,
                                  reference_column)
-    pd.DataFrame({'id': ["sample1", "sample1", "sample2", "sample2",
+    pd.Series({'id': ["sample1", "sample1", "sample2", "sample2",
                          "sample3", "sample3"],
                   "Ref": ["donor2", "donor3", "donor1", "donor3",
                           "donor1", "donor2"]}).set_index('id')
@@ -1020,28 +996,28 @@ def _create_mismatched_pairs(recip_df, metadata, used_references,
          for pair in itertools.product(recip_df.index,
                                        donors)if pair not in matched_pairs]
     idx, values = zip(*filtered)
-    mismatched_df = pd.DataFrame({"id": idx,
-                                  reference_column: values}).set_index("id")
-    return mismatched_df
+    mismatched_series = pd.Series(values,
+                                  index=idx)
+    return mismatched_series
 
 
-def _create_duplicated_tables(simulated_mismatched_df, recip_df, donor_df):
+def _create_duplicated_tables(simulated_mismatched_s, recip_df, donor_df):
     """Creates a recipient feature table that is the same dimensions as
-    the mismatched_df
+    the simulated_mismatched_s
 
     Creates a recipient table that duplicates feature information so that the
-    recip_df is the same dimension as the mismatched_df. This makes numpy array
-    math easier later on.
+    recip_df is the same dimension as the simulated_mismatched_s.
+    This makes numpy array math easier later on.
 
     Parameters
     ----------
-    simulated_mismatched_df: pd.DataFrame
-        A Dataframe that contains recipient samples as the index and mismatched
+    simulated_mismatched_s: pd.Series
+        A Series that contains recipient samples as the index and mismatched
         donors as the values. This has then been simulated by randomly sampling
         the pairs `num_resamples`.
     recip_df: pd.DataFrame
         A feature table of FMT recipients.
-    recip_df: pd.DataFrame
+    donors_df: pd.DataFrame
         A feature table of FMT donors.
 
     Returns
@@ -1055,11 +1031,11 @@ def _create_duplicated_tables(simulated_mismatched_df, recip_df, donor_df):
 
     Examples
     --------
-    >>> mismatched_df = pd.DataFrame({
-            'id': ["sample1", "sample1", "sample2", "sample2",
-                   "sample3", "sample3"],
+    >>> simulated_mismatched_s = pd.series({,
             "Ref": ["donor2", "donor3", "donor1", "donor3",
-                    "donor1", "donor2"]}).set_index('id')
+                    "donor1", "donor2"]},
+            index = ["sample1", "sample1", "sample2", "sample2",
+                   "sample3", "sample3"]).set_index('id')
 
     >>> recip_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3'],
@@ -1073,7 +1049,8 @@ def _create_duplicated_tables(simulated_mismatched_df, recip_df, donor_df):
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]}).set_index('id')
 
-    >>> _create_duplicated_recip_table(mismatched_df, recip_df, donor_df)
+    >>> _create_duplicated_recip_table(simulated_mismatched_s,
+                                       recip_df, donor_df)
 
     recip_df = pd.DataFrame({
             'id': ["sample1..1", "sample1..2", "sample2..3", "sample2..4",
@@ -1091,113 +1068,12 @@ def _create_duplicated_tables(simulated_mismatched_df, recip_df, donor_df):
     """
     simulate_recip_df = pd.DataFrame([], columns=recip_df.columns)
     simulate_donor_df = pd.DataFrame([], columns=donor_df.columns)
-    count = 1
-    for recip, donor_row in simulated_mismatched_df.iterrows():
-        donor = donor_row.values[0]
+    for count, (recip, donor) in enumerate(simulated_mismatched_s.items()):
         simulate_recip_df.loc[
             (recip + '..' + str(count))] = recip_df.loc[recip]
         simulate_donor_df.loc[
             (donor + '..' + str(count))] = donor_df.loc[donor]
-        count += 1
     return simulate_recip_df, simulate_donor_df
-
-
-'''
-def _create_sim_masking(mismatched_df, donor_df, reference_column):
-    """Create a donor mask to mask recipient features that aren't in the donor.
-
-    Creates a Donor Numpy array that duplicates donor samples to match up
-    with duplicated_table. This will mask recipient feature that aren't
-    in the donor.
-
-    Parameters
-    ----------
-    mismatched_df: pd.DataFrame
-        A Dataframe that contains recipient samples as the index and mismatched
-        donors as the values. A recipient sample will appear as many times as
-        there are mismatched donors to pair with.
-    donor_df: pd.DataFrame
-        A feature table of FMT donors.
-    reference_column: str
-        Name of the reference column in the Sample Metadata.
-
-    Returns
-    -------
-    donor_mask: ndarray
-        a numpy array of donor feature information with the same order as
-        duplicated_recip_table. This allows for easy np array math.
-
-    Examples
-    --------
-    >>> mismatched_df = pd.DataFrame({
-                'id': ["sample1", "sample1", "sample2", "sample2",
-                       "sample3", "sample3"],
-                "Ref": ["donor2", "donor3", "donor1", "donor3",
-                        "donor1", "donor2"]}
-                                ).set_index('id')
-    >>> donor_df = pd.DataFrame({
-              'id': ['donor1', 'donor2', 'donor3'],
-              'Feature1': [1, 0, 0],
-              'Feature2': [0, 1, 0],
-              'Feature3': [0, 0, 1]}).set_index('id')
-
-    >>> _create_sim_masking(mismatched_df, donor_df, reference_column)
-
-    ndarray[[0, 1, 0],
-            [0, 0, 1],
-            [1, 0, 0],
-            [0, 0, 1],
-            [1, 0, 0],
-            [0, 1, 0]]
-    """
-    donor_mask = donor_df.to_numpy()
-    return donor_mask
-'''
-
-
-def _simulate_mismatched_pairs(mismatched_df, num_resamples):
-    """Randomly samples the mismatched_df
-
-    Creates a uniform distribution of mismatched pairs by randomly
-    sampling `num_resamples` times with replacement.
-
-    Parameters
-    ----------
-    mismatched_df: pd.DataFrame
-        A Dataframe that contains recipient samples as the index and mismatched
-        donors as the values. A recipient sample will appear as many times as
-        there are mismatched donors to pair with.
-    num_resamples: int
-        Number of iterations(`k`) to run simulations (Number of times to
-        randomly sample mismatched_df)
-
-    Returns
-    -------
-    simulated_mismatched_df: pd.Series
-        a pd.DataFrame with all num_resamples of mismatched pairs. This
-        will later be our uniform distro for comparison.
-
-    Examples
-    --------
-    >>> mismatched_df = pd.DataFrame({
-                'id': ["sample1", "sample1", "sample2", "sample2",
-                       "sample3", "sample3"],
-                "Ref": ["donor2", "donor3", "donor1", "donor3",
-                        "donor1", "donor2"]).set_index('id')
-    >>> num_resamples = 10
-
-    >>> _simulated_mismatched_pairs(mismatched_df, num_resamples)
-        mismatched_df = pd.DataFrame({
-                'id': ["sample1", "sample1", "sample2", "sample2", "sample3",
-                       "sample3", "sample1", "sample2", "sample3","sample1"],
-                "Ref": ["donor2", "donor3", "donor1", "donor3", "donor1",
-                        "donor2", "donor2" "donor3", "donor1","donor3"]
-                        ).set_index('id')
-    """
-
-    simulated_mismatched_df = mismatched_df.sample(n=num_resamples, axis=0,
-                                                   replace=True)
-    return simulated_mismatched_df
 
 
 def _peds_sim_stats(value, peds_iters, num_iterations):
@@ -1295,12 +1171,10 @@ def _per_subject_stats(mismatched_peds, actual_peds):
                    "p-value": [0.001, 0.001, 0.001, 0.001],
                    "q-value": [0.004, 0.002, 0.00133, 0.001]})
     """
-    peds_iters_means = []
     count_less_list = []
     per_subject_p_list = []
     mean_mismatched_value = mismatched_peds.mean()
     for value in actual_peds:
-        peds_iters_means.append(mismatched_peds.mean())
         _, count_less, per_subject_p = _peds_sim_stats(value, mismatched_peds,
                                                        mismatched_peds.size)
         count_less_list.append(count_less)

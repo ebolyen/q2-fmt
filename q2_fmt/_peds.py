@@ -31,8 +31,7 @@ from q2_fmt._util import (_rename_features,
                           _create_duplicated_tables,
                           _per_subject_stats, _global_stats, _mask_recipient,
                           _get_to_baseline_ref, _create_used_references,
-                          _median, _subsample, _check_rarefaction_parameters,
-                          _simulate_mismatched_pairs)
+                          _median, _subsample, _check_rarefaction_parameters)
 
 from q2_stats.util import json_replace
 from q2_stats.plots.raincloud import _make_stats
@@ -41,7 +40,7 @@ from q2_stats.plots.raincloud import _make_stats
 def peds(ctx, table, metadata, peds_metric, time_column, reference_column,
          subject_column, filter_missing_references=False,
          drop_incomplete_subjects=False, drop_incomplete_timepoints=None,
-         level_delimiter=None, num_resamples=0, sampling_depth=None):
+         level_delimiter=None, sampling_depth=None, num_resamples=0):
 
     heatmap = ctx.get_action('fmt', 'heatmap')
 
@@ -53,7 +52,7 @@ def peds(ctx, table, metadata, peds_metric, time_column, reference_column,
             table=table, metadata=metadata, time_column=time_column,
             subject_column=subject_column, reference_column=reference_column,
             filter_missing_references=filter_missing_references,
-            num_resamples=num_resamples, sampling_depth=sampling_depth)
+            sampling_depth=sampling_depth, num_resamples=num_resamples,)
 
     else:
         feature_peds = ctx.get_action('fmt', 'feature_peds')
@@ -61,7 +60,7 @@ def peds(ctx, table, metadata, peds_metric, time_column, reference_column,
             table=table, metadata=metadata, time_column=time_column,
             subject_column=subject_column, reference_column=reference_column,
             filter_missing_references=filter_missing_references,
-            num_resamples=num_resamples, sampling_depth=sampling_depth)
+            sampling_depth=sampling_depth, num_resamples=num_resamples)
     results += heatmap(data=peds_dist[0],
                        level_delimiter=level_delimiter,
                        drop_incomplete_subjects=drop_incomplete_subjects,
@@ -182,8 +181,9 @@ def sample_peds(table: pd.DataFrame, metadata: qiime2.Metadata,
     _check_rarefaction_parameters(num_resamples=num_resamples,
                                   sampling_depth=sampling_depth)
 
-    numerator_df = pd.DataFrame([], index=table.index)
-    denominator_df = pd.DataFrame([], index=table.index)
+    num_list = []
+    denom_list = []
+
     if num_resamples == 0:
         # This will allow the next block of code to run one with
         # no samping depth
@@ -205,12 +205,11 @@ def sample_peds(table: pd.DataFrame, metadata: qiime2.Metadata,
                                 reference_column=reference_column)
         # Set the index for pd matching when concating and summing
         peds_df = peds_df.set_index('id')
-        numerator_df = pd.concat([peds_df['transfered_donor_features'],
-                                  numerator_df],
-                                 axis=1)
-        denominator_df = pd.concat([peds_df['total_donor_features'],
-                                    denominator_df],
-                                   axis=1)
+        num_list.append(peds_df['transfered_donor_features'])
+        denom_list.append(peds_df['total_donor_features'])
+
+    numerator_df = pd.concat(num_list, axis=1)
+    denominator_df = pd.concat(denom_list, axis=1)
 
     median_numerator_series = _median(numerator_df)
     median_denominator_series = _median(denominator_df)
@@ -258,8 +257,8 @@ def sample_peds(table: pd.DataFrame, metadata: qiime2.Metadata,
 def feature_peds(table: pd.DataFrame, metadata: qiime2.Metadata,
                  time_column: str, reference_column: str, subject_column: str,
                  filter_missing_references: bool = False,
-                 num_resamples: int = 0,
-                 sampling_depth: int = None) -> (pd.DataFrame):
+                 sampling_depth: int = None,
+                 num_resamples: int = 0) -> (pd.DataFrame):
     # making sure that samples exist in the table
     ids_with_data = table.index
     metadata = metadata.filter_ids(ids_to_keep=ids_with_data)
@@ -282,11 +281,9 @@ def feature_peds(table: pd.DataFrame, metadata: qiime2.Metadata,
                        subject_column, "categorical")
     _check_rarefaction_parameters(num_resamples=num_resamples,
                                   sampling_depth=sampling_depth)
-    num_timepoints = int(metadata_df[time_column].unique().size)
-    numerator_df =\
-        pd.DataFrame([], index=(table.columns.to_list() * num_timepoints))
-    denominator_df =\
-        pd.DataFrame([], index=(table.columns.to_list() * num_timepoints))
+
+    num_list = []
+    denom_list = []
     if num_resamples == 0:
         # This will allow the next block of code to run one with
         # no samping depth
@@ -308,11 +305,12 @@ def feature_peds(table: pd.DataFrame, metadata: qiime2.Metadata,
                                     time_column=time_column,
                                     subject_column=subject_column,
                                     reference_column=reference_column)
+        peds_df = peds_df.set_index('id')
+        num_list.append(peds_df['recipients with feature'])
+        denom_list.append(peds_df['all possible recipients with feature'])
 
-        numerator_df[('recipients with feature' + str(x))] =\
-            peds_df['recipients with feature'].values
-        denominator_df[('recipients with feature' + str(x))] =\
-            peds_df['all possible recipients with feature'].values
+    numerator_df = pd.concat(num_list, axis=1)
+    denominator_df = pd.concat(denom_list, axis=1)
     median_numerator_series = _median(numerator_df)
     median_denominator_series = _median(denominator_df)
 
@@ -422,8 +420,8 @@ def sample_pprs(table: pd.DataFrame, metadata: qiime2.Metadata,
                                        subject_column, time_column)
     baseline_metadata = metadata_df.join(used_references)
 
-    numerator_df = pd.DataFrame([], index=table.index)
-    denominator_df = pd.DataFrame([], index=table.index)
+    num_list = []
+    denom_list = []
     if num_resamples == 0:
         # This will allow the next block of code to run one with
         # no samping depth
@@ -445,12 +443,12 @@ def sample_pprs(table: pd.DataFrame, metadata: qiime2.Metadata,
                                 reference_column=used_references.name)
         # Set the index for pd matching when concating and summing
         peds_df = peds_df.set_index('id')
-        numerator_df = pd.concat([peds_df['transfered_baseline_features'],
-                                  numerator_df],
-                                 axis=1)
-        denominator_df = pd.concat([peds_df['total_baseline_features'],
-                                    denominator_df],
-                                   axis=1)
+
+        num_list.append(peds_df['transfered_baseline_features'])
+        denom_list.append(peds_df['total_baseline_features'])
+
+    numerator_df = pd.concat(num_list, axis=1)
+    denominator_df = pd.concat(denom_list, axis=1)
 
     median_numerator_series = _median(numerator_df)
     median_denominator_series = _median(denominator_df)
@@ -533,7 +531,9 @@ def peds_simulation(table: pd.DataFrame, metadata: qiime2.Metadata,
                              " to successfully shuffle.")
 
     if not peds_rarefaction:
-        num_resamples = 1
+        actual_peds_num_resamples = 1
+    else:
+        actual_peds_num_resamples = num_resamples
 
     peds = sample_peds(
            table=table, metadata=metadata,
@@ -541,50 +541,25 @@ def peds_simulation(table: pd.DataFrame, metadata: qiime2.Metadata,
            reference_column=reference_column,
            subject_column=subject_column,
            filter_missing_references=filter_missing_references,
-           num_resamples=num_resamples,
+           num_resamples=actual_peds_num_resamples,
            sampling_depth=sampling_depth
-           ).set_index('id')
+           )
 
-    actual_peds = peds['measure']
-    # resetting attrs because they get wipe with set_index
-    peds['measure'].attrs.update({
-        'title': "Sample PEDS",
-        'description': 'Proportional Engraftment of Donor Strains'
-    })
-    peds['group'].attrs.update({
-        'title': time_column,
-        'description': 'Time'
-    })
-    peds['subject'].attrs.update({
-        'title': subject_column,
-        'description': 'Subject IDs linking samples across time'
-    })
-    peds['transfered_donor_features'].attrs.update({
-        'title': "Transfered Reference Features",
-        'description': '...'
-    })
-    peds['total_donor_features'].attrs.update({
-        'title': "Total Reference Features",
-        'description': '...'
-    })
-    peds['donor'].attrs.update({
-        'title': reference_column,
-        'description': 'Donor'
-    })
+    actual_peds = peds[['id', 'measure']].set_index('id')['measure']
 
     # Mismatch simulation:
     recip_df = _create_recipient_table(used_references, metadata_df, table)
     donor_df = table[table.index.isin(used_references)]
-    mismatched_df = \
+    mismatched_series = \
         _create_mismatched_pairs(recip_df,
                                  metadata_df,
                                  used_references,
                                  reference_column)
-    simulated_mismatched_df = _simulate_mismatched_pairs(mismatched_df,
-                                                         num_resamples)
-
+    simulated_mismatched_series = mismatched_series.sample(n=num_resamples,
+                                                           axis=0,
+                                                           replace=True)
     simulated_recip_table, simulated_donor_table =\
-        _create_duplicated_tables(simulated_mismatched_df, recip_df,
+        _create_duplicated_tables(simulated_mismatched_series, recip_df,
                                   donor_df)
     # concating or recip and donor tables so column number stays the same after
     # subsampling
