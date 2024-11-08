@@ -304,4 +304,4 @@ def detect_donor_indicators_method(use):
     )
 
     differentials.assert_output_type("FeatureData[DifferentialAbundance]")
-    da_barplot.assert_output_type(" Visualization")
+    da_barplot.assert_output_type("Visualization")
