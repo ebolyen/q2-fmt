@@ -14,18 +14,21 @@ from scipy.stats import false_discovery_control
 from qiime2.plugin.testing import TestPluginBase
 from qiime2 import Metadata
 
-from q2_fmt._engraftment import group_timepoints, _get_to_baseline_ref
-from q2_fmt._peds import (_compute_peds, sample_peds,
-                          _filter_associated_reference,
+from q2_fmt._util import (_rename_features, _check_column_missing,
                           _check_reference_column, _check_for_time_column,
-                          _check_subject_column, _check_column_type,
-                          _drop_incomplete_timepoints, feature_peds,
-                          _check_column_missing, _rename_features,
-                          peds_simulation, _create_mismatched_pairs,
-                          _simulate_uniform_distro, _create_sim_masking,
-                          _mask_recipient, _create_duplicated_recip_table,
-                          _per_subject_stats, _global_stats, _peds_sim_stats,
-                          sample_pprs)
+                          _filter_associated_reference, _check_subject_column,
+                          _peds_sim_stats,
+                          _get_to_baseline_ref, _drop_incomplete_subjects,
+                          _create_used_references, _median,
+                          _check_rarefaction_parameters,
+                          _subsample, _create_mismatched_pairs,
+                          _mask_recipient, _create_duplicated_tables,
+                          _per_subject_stats, _global_stats,
+                          _check_column_type,
+                          _drop_incomplete_timepoints,)
+from q2_fmt._engraftment import group_timepoints
+from q2_fmt._peds import (_compute_peds, sample_peds,
+                          feature_peds, peds_simulation, sample_pprs)
 from q2_fmt._ancombc import get_baseline_donor_md
 
 
@@ -784,7 +787,7 @@ class TestPeds(TestBase):
             'Feature1': [1, 0, 1, 1, 1, 1],
             'Feature2': [1, 1, 1, 1, 1, 1],
             'Feature3': [0, 0, 1, 1, 1, 1]}).set_index('id')
-        peds_df = pd.DataFrame(columns=['id', 'measure',
+        peds_df = pd.DataFrame(columns=['id',
                                         'transfered_donor_features',
                                         'total_donor_features', 'donor',
                                         'subject', 'group'])
@@ -814,7 +817,7 @@ class TestPeds(TestBase):
                    'donor1', 'donor2'],
             'Feature1': [1, 0, 1, 1, 1, 1],
             'Feature3': [1, 1, 1, 1, 1, 1]}).set_index('id')
-        peds_df = pd.DataFrame(columns=['id', 'measure',
+        peds_df = pd.DataFrame(columns=['id',
                                         'transfered_donor_features',
                                         'total_donor_features', 'donor',
                                         'subject',
@@ -846,7 +849,7 @@ class TestPeds(TestBase):
             'Feature1': [1, 0, 1, 1, 1, 1],
             'Feature2': [1, 1, 1, 1, 1, 1],
             'Feature3': [0, 0, 1, 1, 1, 1]}).set_index('id')
-        peds_df = pd.DataFrame(columns=['id', 'measure',
+        peds_df = pd.DataFrame(columns=['id',
                                         'transfered_donor_features',
                                         'total_donor_features', 'donor',
                                         'subject', 'group'])
@@ -871,82 +874,19 @@ class TestPeds(TestBase):
             'group': [1, 2, 1, 2, np.nan,
                       np.nan]}).set_index('id')
         reference_series = metadata_df['Ref']
+        used_references = _create_used_references(reference_series,
+                                                  metadata_df,
+                                                  time_column_name="group")
         with self.assertRaisesRegex(KeyError, 'Missing references for'
                                     ' the associated sample data. Please make'
                                     ' sure that all samples with a timepoint'
                                     ' value have an associated reference.'
                                     ' IDs where missing references were found'
                                     ':.*'):
-            _filter_associated_reference(reference_series=reference_series,
+            _filter_associated_reference(used_references=used_references,
                                          metadata_df=metadata_df,
-                                         time_column="group",
                                          filter_missing_references=False,
-                                         reference_column="Ref",
                                          ids_with_data=None)
-
-    def test_incomplete_timepoints(self):
-        metadata_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Ref': ['donor1', 'donor1', 'donor1', 'donor2', np.nan,
-                    np.nan],
-            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
-                        np.nan],
-            'group': [1, 2, 3, 2, np.nan,
-                      np.nan]}).set_index('id')
-        metadata = Metadata(metadata_df)
-        table_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Feature1': [1, 0, 1, 1, 1, 1],
-            'Feature2': [1, 1, 1, 1, 1, 1]}).set_index('id')
-        with self.assertRaisesRegex(ValueError, 'Missing timepoints for'
-                                    ' associated subjects. Please make sure'
-                                    ' that all subjects have all timepoints.'
-                                    ' You can drop these subjects by using the'
-                                    ' drop_incomplete_subjects parameter or'
-                                    ' drop any timepoints that have large'
-                                    ' numbers of subjects missing by using the'
-                                    ' drop_incomplete_timepoints parameter. .*'
-                                    '[\'sub2\']'):
-            sample_peds(table=table_df, metadata=metadata,
-                        time_column="group",
-                        reference_column="Ref",
-                        subject_column="subject")
-
-    def test_incomplete_timepoints_with_flag(self):
-        metadata_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Ref': ['donor1', 'donor1', 'donor1', 'donor2', np.nan,
-                    np.nan],
-            'subject': ['sub1', 'sub1', 'sub2', 'sub2', np.nan,
-                        np.nan],
-            'group': [1, 2, 2, 3, np.nan,
-                      np.nan]}).set_index('id')
-        metadata = Metadata(metadata_df)
-        table_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Feature1': [1, 0, 1, 1, 1, 1],
-            'Feature2': [1, 1, 1, 1, 1, 1],
-            'Feature3': [0, 0, 1, 1, 1, 1]}).set_index('id')
-        sample_peds_df = sample_peds(table=table_df, metadata=metadata,
-                                     time_column="group",
-                                     reference_column="Ref",
-                                     subject_column="subject",
-                                     drop_incomplete_timepoints=[1, 3])
-
-        exp_peds_df = pd.DataFrame({
-            'id': ['sample2', 'sample3'],
-            'measure': [0.333333, 1],
-            'transfered_donor_features': [1, 3],
-            'total_donor_features': [3, 3],
-            'donor': ["donor1", "donor1"],
-            'subject': ["sub1", "sub2"],
-            'group': [2.0, 2.0]
-            })
-        pd.testing.assert_frame_equal(sample_peds_df, exp_peds_df)
 
     def test_incorrect_reference_column_name(self):
         metadata_df = pd.DataFrame({
@@ -1013,16 +953,15 @@ class TestPeds(TestBase):
         sample_peds_df = sample_peds(table=table_df, metadata=metadata,
                                      time_column="group",
                                      reference_column="Ref",
-                                     subject_column="subject",
-                                     drop_incomplete_subjects=True)
+                                     subject_column="subject")
         exp_peds_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3'],
-            'measure': [0, 0.333333, 1],
-            'transfered_donor_features': [0, 1, 3],
-            'total_donor_features': [3, 3, 3],
-            'donor': ["donor1", "donor1", "donor1"],
-            'subject': ["sub1", "sub1", "sub1"],
-            'group': [1.0, 2.0, 3.0]
+            'id': ['sample1', 'sample2', 'sample3', 'sample4'],
+            'transfered_donor_features': [0.0, 1.0, 3.0, 3.0],
+            'total_donor_features': [3.0, 3.0, 3.0, 3.0],
+            'donor': ["donor1", "donor1", "donor1", "donor2"],
+            'subject': ["sub1", "sub1", "sub1", "sub2"],
+            'group': [1.0, 2.0, 3.0, 2.0],
+            'measure': [0, 0.333333, 1, 1]
             })
         pd.testing.assert_frame_equal(sample_peds_df, exp_peds_df)
 
@@ -1046,17 +985,19 @@ class TestPeds(TestBase):
         sample_peds_df = sample_peds(table=table_df, metadata=metadata,
                                      time_column="group",
                                      reference_column="Ref",
-                                     subject_column="subject",
-                                     drop_incomplete_subjects=True)
+                                     subject_column="subject")
         TDFs1 = sample_peds_df.set_index("id").at['sample1',
                                                   'transfered_donor_features']
         TDFs2 = sample_peds_df.set_index("id").at['sample2',
                                                   'transfered_donor_features']
         TDFs3 = sample_peds_df.set_index("id").at['sample3',
                                                   'transfered_donor_features']
+        TDFs4 = sample_peds_df.set_index("id").at['sample4',
+                                                  'transfered_donor_features']
         self.assertEqual(TDFs2, 1)
         self.assertEqual(TDFs1, 0)
         self.assertEqual(TDFs3, 3)
+        self.assertEqual(TDFs4, 3)
 
     def test_peds_calc(self):
         metadata_df = pd.DataFrame({
@@ -1078,43 +1019,20 @@ class TestPeds(TestBase):
         sample_peds_df = sample_peds(table=table_df, metadata=metadata,
                                      time_column="group",
                                      reference_column="Ref",
-                                     subject_column="subject",
-                                     drop_incomplete_subjects=True)
+                                     subject_column="subject")
         TDFs1 = sample_peds_df.set_index("id").at['sample1',
                                                   'measure']
         TDFs2 = sample_peds_df.set_index("id").at['sample2',
                                                   'measure']
         TDFs3 = sample_peds_df.set_index("id").at['sample3',
                                                   'measure']
+        TDFs4 = sample_peds_df.set_index("id").at['sample4',
+                                                  'measure']
         self.assertEqual(TDFs2, 1/3)
         self.assertEqual(TDFs1, 0)
         self.assertEqual(TDFs3, 1)
+        self.assertEqual(TDFs4, 1)
 
-# this test doesn't make sense anymore because of the refactor
-    """ def test_no_feature_in_donor(self):
-        metadata_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Ref': ['donor1', 'donor1', 'donor1', 'donor2', np.nan,
-                    np.nan],
-            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
-                        np.nan],
-            'group': [1, 2, 3, 2, np.nan,
-                      np.nan]}).set_index('id')
-        metadata = Metadata(metadata_df)
-        table_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Feature1': [1, 0, 1, 1, 0, 1],
-            'Feature2': [1, 1, 1, 1, 0, 1],
-            'Feature3': [0, 0, 1, 1, 0, 1]}).set_index('id')
-        with self.assertRaisesRegex(ValueError, "Donor Sample donor1.*in it."):
-            sample_peds(table=table_df, metadata=metadata,
-                        time_column="group",
-                        reference_column="Ref",
-                        subject_column="subject",
-                        drop_incomplete_subjects=True)
- """
     def test_unique_subjects_in_timepoints(self):
         metadata_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3', 'sample4',
@@ -1137,8 +1055,7 @@ class TestPeds(TestBase):
             sample_peds(table=table_df, metadata=metadata,
                         time_column="group",
                         reference_column="Ref",
-                        subject_column="subject",
-                        drop_incomplete_subjects=True)
+                        subject_column="subject")
 
     def test_feature_peds_calc(self):
         metadata_df = pd.DataFrame({
@@ -1164,6 +1081,31 @@ class TestPeds(TestBase):
                                                    'measure']
         self.assertEqual(TDFs1, 1/3)
         self.assertEqual(TDFs2, 2/3)
+
+    def test_feature_peds_calc_2_tp(self):
+        metadata_df = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3',
+                   'donor1'],
+            'Ref': ['donor1', 'donor1', 'donor1', np.nan],
+            'subject': ['sub1', 'sub1', 'sub1', np.nan],
+            'group': [1, 2, 1, np.nan]}).set_index('id')
+        metadata = Metadata(metadata_df)
+        table_df = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3',
+                   'donor1'],
+            'Feature1': [0, 0, 1, 1],
+            'Feature2': [0, 1, 1, 1],
+            'Feature3': [0, 0, 1, 0]}).set_index('id')
+        feature_peds_df = feature_peds(table=table_df, metadata=metadata,
+                                       time_column="group",
+                                       reference_column="Ref",
+                                       subject_column="subject")
+        TDFs1 = feature_peds_df.set_index("id").at['Feature1',
+                                                   'measure'].values
+        TDFs2 = feature_peds_df.set_index("id").at['Feature2',
+                                                   'measure'].values
+        np.testing.assert_array_equal(TDFs1, [.5, 0.])
+        np.testing.assert_array_equal(TDFs2, [.5, 1.])
 
     def test_sample_id_match(self):
         metadata_df = pd.DataFrame({
@@ -1267,33 +1209,6 @@ class TestPeds(TestBase):
                                     " be the same as the index of"
                                     " metadata: `id`"):
             _check_column_missing(metadata_df, 'id', 'subject', KeyError)
-
-    def test_drop_incomplete_timepoints(self):
-        metadata_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Ref': ['donor1', 'donor1', 'donor1', 'donor2', np.nan,
-                    np.nan],
-            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
-                        np.nan],
-            'group': [1, 2, 3, 2, np.nan,
-                      np.nan]}).set_index('id')
-        metadata_df = _drop_incomplete_timepoints(metadata_df, "group", [3])
-        self.assertEqual(metadata_df["group"].unique()[0], float(1))
-        self.assertEqual(metadata_df["group"].unique()[1], float(2))
-
-    def test_drop_incomplete_timepoints_list(self):
-        metadata_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'donor1', 'donor2'],
-            'Ref': ['donor1', 'donor1', 'donor1', 'donor2', np.nan,
-                    np.nan],
-            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
-                        np.nan],
-            'group': [1, 2, 3, 2, np.nan,
-                      np.nan]}).set_index('id')
-        metadata_df = _drop_incomplete_timepoints(metadata_df, "group", [3, 2])
-        self.assertEqual(metadata_df["group"].dropna().unique(), [float(1)])
 
     def test_rename_features_with_delim(self):
         metadata_df = pd.DataFrame({
@@ -1419,10 +1334,9 @@ class TestPeds(TestBase):
         sample_peds_df = sample_peds(table=table_df, metadata=metadata,
                                      time_column="group",
                                      reference_column="Ref",
-                                     subject_column="subject",
-                                     drop_incomplete_subjects=True)
+                                     subject_column="subject")
         obs_samples = sample_peds_df['id'].to_list()
-        exp_sample = ['sample1', 'sample2']
+        exp_sample = ['sample1', 'sample2', 'sample4']
         self.assertEqual(obs_samples, exp_sample)
 
     def test_peds_no_donor_in_table(self):
@@ -1448,8 +1362,7 @@ class TestPeds(TestBase):
             sample_peds(table=table_df, metadata=metadata,
                         time_column="group",
                         reference_column="Ref",
-                        subject_column="subject",
-                        drop_incomplete_subjects=True)
+                        subject_column="subject")
 
     def test_peds_no_donor_in_table_flag(self):
         metadata_df = pd.DataFrame({
@@ -1472,7 +1385,6 @@ class TestPeds(TestBase):
                                      time_column="group",
                                      reference_column="Ref",
                                      subject_column="subject",
-                                     drop_incomplete_subjects=True, 
                                      filter_missing_references=True)
         obs_samples = sample_peds_df['id'].to_list()
         exp_sample = ['sample1', 'sample2']
@@ -1493,52 +1405,21 @@ class TestPeds(TestBase):
         sample_pprs_df = sample_pprs(table=table_df, metadata=metadata,
                                      time_column="group",
                                      subject_column="subject",
-                                     baseline_timepoint="1")
+                                     baseline_timepoint="1",
+                                     filter_missing_references=False)
 
         exp_pprs_df = pd.DataFrame({
             'id': ['sample2', 'sample3',  'sample5', 'sample6'],
-            'measure': [0.0, 1.0, 0.0, 1.0],
-            'transfered_baseline_features': [0, 1, 0, 1],
-            'total_baseline_features': [1, 1, 1, 1],
+            'transfered_baseline_features': [0.0, 1.0, 0.0, 1.0],
+            'total_baseline_features': [1.0, 1.0, 1.0, 1.0],
             'baseline': ["sample1", "sample1", "sample4", "sample4"],
             'subject': ["sub1", "sub1", "sub2", "sub2"],
-            'group': [2.0, 3.0, 2.0, 3.0]
+            'group': [2.0, 3.0, 2.0, 3.0],
+            'measure': [0.0, 1.0, 0.0, 1.0]
             })
         pd.testing.assert_frame_equal(sample_pprs_df, exp_pprs_df)
 
-    def test_pprs_incomplete_timepoints_with_flag(self):
-        metadata_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'pre1', 'pre2'],
-            'subject': ['sub1', 'sub1', 'sub2', 'sub2', 'sub1',
-                        'sub2'],
-            'group': [1, 2, 2, 3, 0,
-                      0]}).set_index('id')
-        metadata = Metadata(metadata_df)
-        table_df = pd.DataFrame({
-            'id': ['sample1', 'sample2', 'sample3', 'sample4',
-                   'pre1', 'pre2'],
-            'Feature1': [1, 0, 1, 1, 1, 1],
-            'Feature2': [1, 1, 1, 1, 1, 1],
-            'Feature3': [0, 0, 1, 1, 1, 1]}).set_index('id')
-        sample_pprs_df = sample_pprs(table=table_df, metadata=metadata,
-                                     time_column="group",
-                                     baseline_timepoint="0",
-                                     subject_column="subject",
-                                     drop_incomplete_timepoints=[1, 3])
-
-        exp_pprs_df = pd.DataFrame({
-            'id': ['sample2', 'sample3'],
-            'measure': [0.333333, 1],
-            'transfered_baseline_features': [1, 3],
-            'total_baseline_features': [3, 3],
-            'baseline': ["pre1", "pre2"],
-            'subject': ["sub1", "sub2"],
-            'group': [2.0, 2.0]
-            })
-        pd.testing.assert_frame_equal(sample_pprs_df, exp_pprs_df)
-
-    def test_pprs_baseline_sub_incomplete_timepoints_with_flag(self):
+    def test_pprs_baseline_sub(self):
         metadata_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3', 'sample4',
                    'pre1', 'pre2'],
@@ -1559,11 +1440,190 @@ class TestPeds(TestBase):
                         time_column="group",
                         baseline_timepoint="0",
                         subject_column="subject",
-                        drop_incomplete_timepoints=[1, 3])
+                        filter_missing_references=False)
+
+    def test_create_used_references(self):
+        reference_series = pd.Series(data=['donor1', 'donor1'],
+                                     index=pd.Index(['sample1',
+                                                    'sample2'], name='id'),
+                                     name='reference')
+
+        metadata_df = pd.DataFrame({'id': ['sample1', 'sample2'],
+                                    'reference': ['donor1', 'donor1'],
+                                    'time': [1, np.NaN]}).set_index('id')
+        time_column_name = 'time'
+
+        obs_used_references = _create_used_references(reference_series,
+                                                      metadata_df,
+                                                      time_column_name)
+        exp_used_references = pd.Series(data=['donor1'],
+                                        index=pd.Index(['sample1'], name='id'),
+                                        name='reference')
+        pd.testing.assert_series_equal(obs_used_references,
+                                       exp_used_references)
+
+    def test_pprs_missing_baseline(self):
+        metadata_df = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3', 'sample4',
+                   'sample5', 'sample6'],
+            'subject': ['sub1', 'sub1', 'sub1', 'sub2', 'sub2', 'sub2'],
+            'group': [1, 2, 3, 4, 2, 3]}).set_index('id')
+        metadata = Metadata(metadata_df)
+        table_df = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3', 'sample4',
+                   'sample5', 'sample6'],
+            'Feature1': [1, 0, 1, 0, 0, 0],
+            'Feature2': [0, 0, 1, 1, 0, 1]}).set_index('id')
+        with self.assertRaisesRegex(KeyError, "Missing references for the"
+                                    " associated sample data. .*"):
+            sample_pprs(table=table_df, metadata=metadata,
+                        time_column="group",
+                        subject_column="subject",
+                        baseline_timepoint="1",
+                        filter_missing_references=False)
+
+    def test_median(self):
+        df = pd.DataFrame({
+              'id': ['s1', 's2', 's3'],
+              'transfered_donor_features': [1, 1, 1],
+              'transfered_donor_features0': [0, 1, 0.5],
+              'transfered_donor_features1': [0.75, 0.50, .5]}).set_index('id')
+
+        median = _median(df)
+
+        exp_median = pd.Series(data=[.75, 1, 0.5],
+                               index=pd.Index(['s1', 's2', 's3'], name='id'))
+        pd.testing.assert_series_equal(median, exp_median)
+
+    def test_median_one_iter(self):
+        df = pd.DataFrame({
+              'id': ['s1', 's2', 's3'],
+              'transfered_donor_features': [1, 1, 1]}).set_index('id')
+
+        median = _median(df)
+
+        exp_median = pd.Series(data=[1.0, 1.0, 1.0],
+                               index=pd.Index(['s1', 's2', 's3'], name='id'))
+        pd.testing.assert_series_equal(median, exp_median)
+
+    def test_rarefaction_params_sd_none(self):
+        num_resamples = 2
+
+        sampling_depth = None
+        with self.assertRaisesRegex(AssertionError,
+                                    "`num_resamples` and `sampling depth`"
+                                    " parameters must be passed in together"
+                                    ".*"):
+            _check_rarefaction_parameters(num_resamples, sampling_depth)
+
+    def test_rarefaction_params_nr_zero(self):
+        num_resamples = 0
+
+        sampling_depth = 100
+        with self.assertRaisesRegex(AssertionError,
+                                    "`num_resamples` and `sampling depth`"
+                                    " parameters must be passed in together"
+                                    ".*"):
+            _check_rarefaction_parameters(num_resamples, sampling_depth)
+
+    def test_subsample_total(self):
+        table = pd.DataFrame({
+              'id': ['s1', 's2', 's3'],
+              'feature1': [10, 10, 10],
+              'feature2': [2, 1, 5],
+              'feature3': [1, 5, 1]}).set_index('id')
+
+        sampling_depth = 7
+
+        rarified_table = _subsample(table, sampling_depth)
+        self.assertTrue((rarified_table.sum(axis=1) == 7).all())
+
+    def test_subsample_drops_samples(self):
+        table = pd.DataFrame({
+              'id': ['s1', 's2', 's3'],
+              'feature1': [10, 10, 10],
+              'feature2': [2, 1, 5],
+              'feature3': [1, 5, 1]}).set_index('id')
+
+        sampling_depth = 16
+        rarified_table = _subsample(table, sampling_depth)
+
+        self.assertTrue('s1' not in rarified_table.index)
+
+    def test_peds_boots(self):
+        metadata_df = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3', 'sample4',
+                   'donor1', 'donor2'],
+            'Ref': ['donor1', 'donor1', 'donor1', 'donor2', np.nan,
+                    np.nan],
+            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
+                        np.nan],
+            'group': [1, 2, 3, 2, np.nan,
+                      np.nan]}).set_index('id')
+        metadata = Metadata(metadata_df)
+        table_df = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3', 'sample4',
+                   'donor1', 'donor2'],
+            'Feature1': [0, 0, 1, 1, 1, 1],
+            'Feature2': [0, 1, 1, 1, 1, 1],
+            'Feature3': [0, 0, 1, 1, 1, 1]}).set_index('id')
+        sample_peds_df = sample_peds(table=table_df, metadata=metadata,
+                                     time_column="group",
+                                     reference_column="Ref",
+                                     subject_column="subject",
+                                     num_resamples=1,
+                                     sampling_depth=3)
+
+        TDFs3 = sample_peds_df.set_index("id").at['sample3',
+                                                  'measure']
+        TDFs4 = sample_peds_df.set_index("id").at['sample4',
+                                                  'measure']
+
+        self.assertEqual(TDFs3, 1)
+        self.assertEqual(TDFs4, 1)
+
+
+class TestHeatmapHelpers(TestBase):
+    def test_drop_incomplete_timepoints(self):
+        data = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3', 'sample4',
+                   'donor1', 'donor2'],
+            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
+                        np.nan],
+            'group': [1, 2, 3, 2, np.nan,
+                      np.nan]}).set_index('id')
+        filtered_data = _drop_incomplete_timepoints(data, ["3"])
+        self.assertFalse(filtered_data['group'].isin([3]).any())
+
+    def test_drop_incomplete_timepoints_list(self):
+        data = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3', 'sample4',
+                   'donor1', 'donor2'],
+            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
+                        np.nan],
+            'group': [1, 2, 3, 2, np.nan,
+                      np.nan]}).set_index('id')
+        filtered_data = _drop_incomplete_timepoints(data, ["3", "2"])
+        self.assertFalse(filtered_data['group'].isin([3]).any())
+        self.assertFalse(filtered_data['group'].isin([2]).any())
+
+    def test_drop_incomplete_subjects(self):
+        data = pd.DataFrame({
+            'id': ['sample1', 'sample2', 'sample3', 'sample4',
+                   'donor1', 'donor2'],
+            'subject': ['sub1', 'sub1', 'sub1', 'sub2', np.nan,
+                        np.nan],
+            'group': [1, 2, 3, 2, np.nan,
+                      np.nan]}).set_index('id')
+        filtered_data = _drop_incomplete_subjects(data, True)
+        self.assertFalse(filtered_data.index.isin(["sample4"]).any())
 
 
 class TestSim(TestBase):
     def test_high_donor_overlap(self):
+        # This tests has a very small chance of failing by random chance if
+        # out of the 9 random samples, the present feature doesnt subsample
+        # at least one time but that is pretty unlikely.
         metadata_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
@@ -1580,22 +1640,26 @@ class TestSim(TestBase):
         table_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
-            'Feature1': [1, 0, 0, 1, 0, 0],
-            'Feature2': [0, 1, 0, 0, 1, 0],
-            'Feature3': [0, 0, 1, 0, 0, 1]}).set_index('id')
+            'Feature1': [10, 0, 0, 10, 0, 0],
+            'Feature2': [0, 10, 0, 0, 10, 0],
+            'Feature3': [0, 0, 10, 0, 0, 10]}).set_index('id')
         metadata = Metadata(metadata_df)
 
-        stats, _ = peds_simulation(metadata=metadata,
-                                   table=table_df,
-                                   time_column="group",
-                                   reference_column="Ref",
-                                   subject_column="subject",
-                                   num_iterations=999)
+        _, stats, _ = peds_simulation(metadata=metadata,
+                                      table=table_df,
+                                      time_column="group",
+                                      reference_column="Ref",
+                                      subject_column="subject",
+                                      num_resamples=999,
+                                      sampling_depth=9)
         real_median = np.median(stats["A:measure"].values)
         fake_median = np.median(stats["B:measure"].values)
         self.assertGreater(real_median, fake_median)
 
     def test_low_donor_overlap(self):
+        # This tests has a very small chance of failing by random chance if
+        # out of the 9 random samples, the present feature doesnt subsample
+        # at least one time but that is pretty unlikely.
         metadata_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
@@ -1612,17 +1676,18 @@ class TestSim(TestBase):
         table_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3',
                    'donor1', 'donor2', 'donor3'],
-            'Feature1': [1, 0, 0, 0, 1, 1],
-            'Feature2': [0, 1, 0, 1, 0, 1],
-            'Feature3': [0, 0, 1, 1, 1, 0]}).set_index('id')
+            'Feature1': [10, 0, 0, 0, 10, 10],
+            'Feature2': [0, 10, 0, 10, 0, 10],
+            'Feature3': [0, 0, 10, 10, 10, 0]}).set_index('id')
         metadata = Metadata(metadata_df)
 
-        stats, _ = peds_simulation(metadata=metadata,
-                                   table=table_df,
-                                   time_column="group",
-                                   reference_column="Ref",
-                                   subject_column="subject",
-                                   num_iterations=999)
+        _, stats, _ = peds_simulation(metadata=metadata,
+                                      table=table_df,
+                                      time_column="group",
+                                      reference_column="Ref",
+                                      subject_column="subject",
+                                      num_resamples=999,
+                                      sampling_depth=9)
 
         real_median = np.median(stats["A:measure"].values)
         fake_median = np.median(stats["B:measure"].values)
@@ -1653,7 +1718,8 @@ class TestSim(TestBase):
                             time_column="group",
                             reference_column="Ref",
                             subject_column="subject",
-                            num_iterations=999)
+                            num_resamples=999,
+                            sampling_depth=1)
 
     def test_create_mismatched_pairs(self):
         metadata_df = pd.DataFrame({
@@ -1682,14 +1748,12 @@ class TestSim(TestBase):
         mismatched_df = _create_mismatched_pairs(recip_df, metadata_df,
                                                  used_references,
                                                  reference_column='Ref')
-        exp_mismatched_df = pd.DataFrame({'id': ["sample1", "sample1",
-                                                 "sample2", "sample2",
-                                                 "sample3", "sample3"],
-                                          "Ref": ["donor2", "donor3",
-                                                  "donor1", "donor3",
-                                                  "donor1", "donor2"]}
-                                         ).set_index('id')
-        pd.testing.assert_frame_equal(mismatched_df, exp_mismatched_df)
+        exp_mismatched_df = pd.Series(["donor2", "donor3", "donor1", "donor3",
+                                       "donor1", "donor2"],
+                                      index=["sample1", "sample1",
+                                             "sample2", "sample2",
+                                             "sample3", "sample3"])
+        pd.testing.assert_series_equal(mismatched_df, exp_mismatched_df)
 
     def test_mask_recipient(self):
         donor_mask = np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]])
@@ -1713,80 +1777,6 @@ class TestSim(TestBase):
         exp_r_mask = [[0, 0, 0], [0, 1, 0], [0, 0, 0]]
         np.testing.assert_array_equal(recip_mask, exp_r_mask)
 
-    def test_simulate_uniform_distro(self):
-        # Note: This tests has a VERY small chance to have intermit failures
-        # if by random chance 1, 2, or 3 are not selected by random.choice.
-        mismatch_peds = [1, 2, 3]
-
-        iterations = 999
-
-        mismatchpairs_df = _simulate_uniform_distro(mismatch_peds,
-                                                    iterations)
-        self.assertIn(1, mismatchpairs_df)
-        self.assertIn(2, mismatchpairs_df)
-        self.assertIn(3, mismatchpairs_df)
-        self.assertEquals(mismatchpairs_df.size, iterations)
-
-    def test_one_iter_simulate_uniform_distro(self):
-        mismatch_peds = [0, 0, 0, 0, 0, 0]
-
-        iterations = 1
-
-        mismatchpairs_df = _simulate_uniform_distro(mismatch_peds,
-                                                    iterations)
-        self.assertEquals(mismatchpairs_df.size, iterations)
-
-    def test_create_sim_masking(self):
-
-        mismatched_df = pd.DataFrame({'id': ["sample1", "sample1",
-                                             "sample2", "sample2",
-                                             "sample3", "sample3"],
-                                      "Ref": ["donor2", "donor3",
-                                              "donor1", "donor3",
-                                              "donor1", "donor2"]}
-                                     ).set_index('id')
-
-        donor_df = pd.DataFrame({
-            'id': ['donor1', 'donor2', 'donor3'],
-            'Feature1': [1, 0, 0],
-            'Feature2': [0, 1, 0],
-            'Feature3': [0, 0, 1]}).set_index('id')
-
-        exp_mask = [[0, 1, 0],
-                    [0, 0, 1],
-                    [1, 0, 0],
-                    [0, 0, 1],
-                    [1, 0, 0],
-                    [0, 1, 0]]
-
-        donor_mask = _create_sim_masking(mismatched_df, donor_df,
-                                         reference_column='Ref')
-        np.testing.assert_array_equal(donor_mask, exp_mask)
-
-    def test_create_one_donor_sim_masking(self):
-
-        mismatched_df = pd.DataFrame({'id': ["sample1",
-                                             "sample2",
-                                             "sample3"],
-                                      "Ref": ["donor2",
-                                              "donor2",
-                                              "donor2"]}
-                                     ).set_index('id')
-
-        donor_df = pd.DataFrame({
-            'id': ['donor2'],
-            'Feature1': [1],
-            'Feature2': [0],
-            'Feature3': [0]}).set_index('id')
-
-        exp_mask = [[1, 0, 0],
-                    [1, 0, 0],
-                    [1, 0, 0]]
-
-        donor_mask = _create_sim_masking(mismatched_df, donor_df,
-                                         reference_column='Ref')
-        np.testing.assert_array_equal(donor_mask, exp_mask)
-
     def test_create_duplicated_table(self):
         recip_df = pd.DataFrame({
             'id': ['sample1', 'sample2', 'sample3'],
@@ -1794,26 +1784,40 @@ class TestSim(TestBase):
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]}).set_index('id')
 
-        mismatched_df = pd.DataFrame({'id': ["sample1", "sample1",
-                                             "sample2", "sample2",
-                                             "sample3", "sample3"],
-                                      "Ref": ["donor2", "donor3",
-                                              "donor1", "donor3",
-                                              "donor1", "donor2"]}
-                                     ).set_index('id')
+        donor_df = pd.DataFrame({
+            'id': ['donor1', 'donor2', 'donor3'],
+            'Feature1': [1, 0, 0],
+            'Feature2': [0, 1, 0],
+            'Feature3': [0, 0, 1]}).set_index('id')
 
-        duplicated_recip_table = _create_duplicated_recip_table(mismatched_df,
-                                                                recip_df)
+        mismatched_series = pd.Series(["donor2", "donor3",
+                                       "donor1", "donor3",
+                                       "donor1", "donor2"],
+                                      index=["sample1", "sample1",
+                                             "sample2", "sample2",
+                                             "sample3", "sample3"])
+        duplicated_recip_table, duplicated_donor_table =\
+            _create_duplicated_tables(mismatched_series, recip_df=recip_df,
+                                      donor_df=donor_df)
 
         exp_d_r_table = pd.DataFrame({
-            'id': ['sample1', 'sample1', 'sample2', 'sample2',
-                   'sample3', 'sample3'],
             'Feature1': [1, 1, 0, 0, 0, 0],
             'Feature2': [0, 0, 1, 1, 0, 0],
-            'Feature3': [0, 0, 0, 0, 1, 1]}).set_index('id')
+            'Feature3': [0, 0, 0, 0, 1, 1]},
+            index=['sample1..0', 'sample1..1', 'sample2..2', 'sample2..3',
+                   'sample3..4', 'sample3..5'])
+
+        exp_d_d_table = pd.DataFrame({
+            'Feature1': [0, 0, 1, 0, 1, 0],
+            'Feature2': [1, 0, 0, 0, 0, 1],
+            'Feature3': [0, 1, 0, 1, 0, 0]},
+            index=["donor2..0", "donor3..1", "donor1..2", "donor3..3",
+                   "donor1..4", "donor2..5"])
 
         pd.testing.assert_frame_equal(duplicated_recip_table,
                                       exp_d_r_table)
+        pd.testing.assert_frame_equal(duplicated_donor_table,
+                                      exp_d_d_table)
 
     def test_create_no_duplicated_table(self):
         recip_df = pd.DataFrame({
@@ -1822,28 +1826,31 @@ class TestSim(TestBase):
             'Feature2': [0, 1, 0],
             'Feature3': [0, 0, 1]}).set_index('id')
 
-        mismatched_df = pd.DataFrame({'id': ["sample1",
-                                             "sample2",
-                                             "sample3"],
-                                      "Ref": ["donor2",
-                                              "donor2",
-                                              "donor2"]}
-                                     ).set_index('id')
+        donor_df = pd.DataFrame({
+            'id': ['donor2'],
+            'Feature1': [0],
+            'Feature2': [1],
+            'Feature3': [0]}).set_index('id')
 
-        duplicated_recip_table = _create_duplicated_recip_table(mismatched_df,
-                                                                recip_df)
-        pd.testing.assert_frame_equal(duplicated_recip_table,
-                                      recip_df)
+        mismatched_df = pd.Series(["donor2", "donor2", "donor2"],
+                                  index=["sample1", "sample2", "sample3"])
+        exp_d_r_df = pd.DataFrame({
+            'Feature1': [1, 0, 0],
+            'Feature2': [0, 1, 0],
+            'Feature3': [0, 0, 1]},
+            index=['sample1..0', 'sample2..1', 'sample3..2'])
+        duplicated_recip_table, __ =\
+            _create_duplicated_tables(mismatched_df, recip_df, donor_df)
+        pd.testing.assert_frame_equal(exp_d_r_df,
+                                      duplicated_recip_table)
 
     def test_per_subject_stats_labels(self):
-        mismatched_peds = [0, 0, 0, 0]
+        mismatched_peds = pd.Series([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         actual_temp = pd.Series(data=[1, 1, 1, 1],
                                 index=["sample1", "sample2", "sample3",
                                        "sample4"])
-        iterations = 10
 
-        p_s_stats = _per_subject_stats(mismatched_peds,
-                                       actual_temp, iterations)
+        p_s_stats = _per_subject_stats(mismatched_peds, actual_temp)
 
         exp_column_names = ["A:group", "A:n", "A:measure",
                             "B:group", "B:n", "B:measure", "n",
@@ -1852,14 +1859,13 @@ class TestSim(TestBase):
                                       exp_column_names)
 
     def test_per_subject_stats(self):
-        mismatched_peds = [0, 0, 0, 0]
+        mismatched_peds = pd.Series([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         actual_temp = pd.Series(data=[1, 1, 1, 1],
                                 index=["sample1", "sample2", "sample3",
                                        "sample4"])
-        iterations = 10
 
         p_s_stats = _per_subject_stats(mismatched_peds,
-                                       actual_temp, iterations)
+                                       actual_temp)
 
         exp_test_stats = pd.Series([10, 10, 10, 10])
 
@@ -1867,15 +1873,12 @@ class TestSim(TestBase):
                                       exp_test_stats.values)
 
     def test_per_subject_stats_q(self):
-        mismatched_peds = [0, 0, 0, 0]
+        mismatched_peds = pd.Series([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         actual_temp = pd.Series(data=[1, 0, 1, 0],
                                 index=["sample1", "sample2", "sample3",
                                        "sample4"])
-        iterations = 10
-
         p_s_stats = _per_subject_stats(mismatched_peds,
-                                       actual_temp, iterations)
-
+                                       actual_temp)
         exp_p = ([1/11, 11/11, 1/11, 11/11])
 
         exp_q = false_discovery_control(ps=exp_p, method='bh')
