@@ -26,6 +26,7 @@ from q2_fmt._peds import (_compute_peds, sample_peds,
                           _mask_recipient, _create_duplicated_recip_table,
                           _per_subject_stats, _global_stats, _peds_sim_stats,
                           sample_pprs)
+from q2_fmt._ancombc import get_baseline_donor_md
 
 
 class TestBase(TestPluginBase):
@@ -2006,3 +2007,21 @@ class TestSim(TestBase):
         self.assertEqual(count_gte, exp_count_gte)
         self.assertEqual(count_less, exp_count_less)
         self.assertEqual(per_subject_p, exp_per_subject_p)
+
+
+class detect(TestBase):
+    def test_baseline_donor_md(self):
+        metadata = pd.DataFrame({'id': ['sample1', 'sample2', 'donor1'],
+                                 'reference': ['donor1', 'donor1', np.nan],
+                                 'time': [1, 2, np.nan],
+                                 'subject': ['sub1', 'sub1',
+                                             np.nan]}).set_index('id')
+        time_column = 'time'
+        reference_column = 'reference'
+        baseline_timepoint = '1'
+        b_d_md = get_baseline_donor_md(Metadata(metadata), reference_column,
+                                       time_column, baseline_timepoint)
+        exp_b_d_md = pd.DataFrame({'id': ['donor1', 'sample1'],
+                                   'type': ['donor',
+                                            'baseline']}).set_index('id')
+        pd.testing.assert_frame_equal(b_d_md, exp_b_d_md)

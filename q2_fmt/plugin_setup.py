@@ -17,6 +17,8 @@ from q2_types.distance_matrix import DistanceMatrix
 import q2_fmt
 from q2_types.feature_table import (
     FeatureTable, Frequency, RelativeFrequency, PresenceAbsence)
+from q2_types.feature_data import FeatureData
+from q2_composition import DifferentialAbundance
 from q2_stats.types import (Dist1D, Matched, Independent, Ordered,
                             Unordered, StatsTable, Pairwise,
                             NestedOrdered)
@@ -417,6 +419,39 @@ plugin.methods.register_function(
                citations['Benjamini_fdr_1995']],
     examples={
         'peds_methods': ex.simulation_peds_method
+    }
+)
+
+plugin.pipelines.register_function(
+    function=q2_fmt.detect_donor_indicators,
+    inputs={'table': FeatureTable[Frequency]},
+    parameters={'metadata': Metadata,
+                'time_column': Str,
+                'reference_column': Str,
+                'level_delimiter': Str,
+                'baseline_timepoint': Str},
+    outputs=[('differentials', FeatureData[DifferentialAbundance]),
+             ('da_barplot', Visualization)],
+    input_descriptions={'table': peds_table},
+    parameter_descriptions={
+        'metadata': metadata,
+        'time_column': time_column,
+        'reference_column': reference_column,
+        'level_delimiter': level_delimiter,
+        'baseline_timepoint': baseline_timepoint},
+    output_descriptions={'da_barplot': 'A diverging barplot showing'
+                                       ' differiental abundant microbes'
+                                       ' between baseline recipient samples'
+                                       ' and donor samples.',
+                         'differentials': 'The calculated per-feature'
+                                          ' differentials.'},
+    name='Detect Donor Indicators Features',
+    description='Runs a pipeline to indentify differetial features between the'
+                ' donor and the baseline recipient. This is done by filtering'
+                ' the feature table to donor and baseline timepoints and'
+                ' running ancombc comparing those groups',
+    examples={
+        'detect_methods': ex.detect_donor_indicators_method
     }
 )
 
